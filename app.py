@@ -15,33 +15,24 @@ st.set_page_config(page_title="Emissão Rápida", layout="centered")
 # --- ESTILIZAÇÃO DO TEMA (Correção do Preto no Preto) ---
 st.markdown("""
     <style>
-    /* Fundo geral branco */
     .stApp {
         background-color: #FFFFFF !important;
     }
-    
-    /* Forçar todos os textos normais para preto */
     h1, h2, h3, p, label, .stMarkdown * {
         color: #000000 !important;
     }
-    
-    /* Correção do Selectbox (Dropdown) e Inputs */
     div[data-baseweb="select"] > div, 
-    input {
+    input, textarea {
         background-color: #FFFFFF !important;
         color: #000000 !important;
         border: 1px solid #CCCCCC !important;
     }
-    
-    /* Correção da listagem do Dropdown (quando clica para abrir) */
     ul[data-baseweb="menu"] {
         background-color: #FFFFFF !important;
     }
     li[data-baseweb="menu-item"], li[data-baseweb="menu-item"] * {
         color: #000000 !important;
     }
-    
-    /* Correção da caixa de Sucesso (Verde clarinho com texto verde escuro) */
     div[data-testid="stAlert"] {
         background-color: #E8F5E9 !important;
         border-color: #A5D6A7 !important;
@@ -49,8 +40,6 @@ st.markdown("""
     div[data-testid="stAlert"] * {
         color: #1B5E20 !important;
     }
-
-    /* Correção da caixa de Aviso (Amarelo claro) */
     div[data-testid="stWarning"] {
         background-color: #FFF3E0 !important;
         border-color: #FFCC80 !important;
@@ -58,21 +47,17 @@ st.markdown("""
     div[data-testid="stWarning"] * {
         color: #E65100 !important;
     }
-
-    /* Estilização do Botão Principal (Vermelho com texto branco) */
     div.stButton > button {
         background-color: #D32F2F !important;
         border: none !important;
         font-weight: bold;
     }
     div.stButton > button * {
-        color: #FFFFFF !important; /* Garante o texto branco no botão vermelho */
+        color: #FFFFFF !important; 
     }
     div.stButton > button:hover {
         background-color: #B71C1C !important;
     }
-    
-    /* Correção do Checkbox */
     div[data-testid="stCheckbox"] span {
         color: #000000 !important;
     }
@@ -86,7 +71,12 @@ EMAILS_FILIAIS = {
     "Poços de Caldas": ["faturamentopc2@minassal.com.br"],
     "Juiz de Fora": ["faturamentojf@minassal.com.br"]
 }
-EMAIL_COPIA = "benedito.bandola@minassal.com.br"
+
+# Lista com os seus dois e-mails
+MEUS_EMAILS = [
+    "beneditobandola@gmail.com",
+    "benedito.bandola@minassal.com.br"
+]
 
 @st.cache_data
 def carregar_planilha():
@@ -94,7 +84,7 @@ def carregar_planilha():
     df.columns = df.columns.str.strip() 
     return df
 
-def enviar_email_gmail(destinatarios, cc, assunto, nome_cliente, caminho_pdf):
+def enviar_email_gmail(destinatarios, cc_list, assunto, nome_cliente, caminho_pdf, observacao=""):
     try:
         remetente = st.secrets["EMAIL_REMETENTE"]
         senha = st.secrets["SENHA_REMETENTE"]
@@ -102,8 +92,8 @@ def enviar_email_gmail(destinatarios, cc, assunto, nome_cliente, caminho_pdf):
         msg = MIMEMultipart('related')
         msg['From'] = remetente
         msg['To'] = ", ".join(destinatarios)
-        if cc:
-            msg['Cc'] = cc
+        if cc_list:
+            msg['Cc'] = ", ".join(cc_list)
         msg['Subject'] = assunto
         
         msg_alt = MIMEMultipart('alternative')
@@ -112,6 +102,7 @@ def enviar_email_gmail(destinatarios, cc, assunto, nome_cliente, caminho_pdf):
         hora_atual = datetime.now().hour
         saudacao = "Bom dia" if hora_atual < 12 else ("Boa tarde" if hora_atual < 18 else "Boa noite")
         
+        # Montagem do corpo do e-mail com a observação (se existir)
         html = f"""
         <html>
           <body style="font-family: Arial, sans-serif; color: #333; line-height: 1.5;">
@@ -119,9 +110,12 @@ def enviar_email_gmail(destinatarios, cc, assunto, nome_cliente, caminho_pdf):
               {saudacao},<br><br>
               Por favor, quando possível, vai ter um pedido para este cliente ({nome_cliente}), 
               poderia enviar o <b>display filhotes</b> com a carga por favor?<br><br>
-              Obrigado!
-            </p>
         """
+        
+        if observacao.strip():
+            html += f"<p style='color: #D32F2F; font-weight: bold;'>⚠️ Observação: {observacao}</p><br>"
+            
+        html += "Obrigado!</p>"
         
         imagem_path = "display.png" if os.path.exists("display.png") else ("display.jpg" if os.path.exists("display.jpg") else None)
         
@@ -146,8 +140,8 @@ def enviar_email_gmail(destinatarios, cc, assunto, nome_cliente, caminho_pdf):
         msg.attach(part)
         
         todos_destinatarios = destinatarios.copy()
-        if cc:
-            todos_destinatarios.append(cc)
+        if cc_list:
+            todos_destinatarios.extend(cc_list)
             
         server = smtplib.SMTP('smtp.gmail.com', 587)
         server.starttls()
@@ -238,7 +232,6 @@ except FileNotFoundError:
 # 1. Captura do Código
 codigo_input = st.text_input("1. Digite o Código do Cliente (Apenas números):", placeholder="Ex: 17129")
 
-# Só avança se algo for digitado
 if codigo_input:
     if not codigo_input.isdigit():
         st.warning("⚠️ Digite apenas números no código.")
@@ -263,13 +256,15 @@ if codigo_input:
                 """)
             st.divider()
 
-            # 2. Seleção de Filial e Modo Teste
+            # 2. Seleção de Filial, Observações e Modo de Envio Exclusivo
             filial_selecionada = st.selectbox("2. Selecione a Filial:", list(EMAILS_FILIAIS.keys()))
-            modo_teste = st.checkbox("🧪 Modo Teste (Enviar apenas para mim)", value=False)
+            
+            observacao = st.text_input("📝 Observações para a logística (Opcional):", placeholder="Ex: Entregar à tarde, entregar nos fundos...")
+            
+            enviar_so_para_mim = st.checkbox("📩 Enviar SOMENTE para os meus e-mails (Gmail e Minassal)", value=False)
             
             # 3. Botão de Envio
             if st.button("3. Gerar e Enviar E-mail 🚀"):
-                # VERIFICAÇÃO ANTECIPADA DAS CREDENCIAIS
                 if "EMAIL_REMETENTE" not in st.secrets or "SENHA_REMETENTE" not in st.secrets:
                     st.error("❌ Credenciais (Secrets) não cadastradas no Streamlit. Por favor, configure os secrets.")
                 else:
@@ -289,19 +284,21 @@ if codigo_input:
                         
                         assunto = f'Envio de display Royal Canin Mini filhotes para o cliente "{nome_formatado_cliente} e {cliente["CÓDIGO"]} / {cliente["CIDADE"]} / {cliente["UF"]}"'
                         
-                        if modo_teste:
-                            emails_para = [EMAIL_COPIA]
-                            cc_email = None 
+                        if enviar_so_para_mim:
+                            emails_para = MEUS_EMAILS.copy()
+                            cc_email = [] 
                         else:
                             emails_para = EMAILS_FILIAIS[filial_selecionada].copy()
                             email_cliente = str(cliente.get('E-MAIL', ''))
                             if email_cliente != 'nan' and email_cliente.strip() != '':
                                 emails_para.append(email_cliente.strip())
-                            cc_email = EMAIL_COPIA
+                            cc_email = MEUS_EMAILS.copy()
                         
-                        sucesso = enviar_email_gmail(emails_para, cc_email, assunto, nome_formatado_cliente, nome_arquivo)
+                        # Passando a observação para a função de envio
+                        sucesso = enviar_email_gmail(emails_para, cc_email, assunto, nome_formatado_cliente, nome_arquivo, observacao)
+                        
                         if sucesso:
-                            if modo_teste:
-                                st.success(f"✅ MODO TESTE: Recibo gerado e e-mail enviado APENAS para {EMAIL_COPIA}.")
+                            if enviar_so_para_mim:
+                                st.success("✅ Recibo gerado e e-mail enviado APENAS para os seus e-mails.")
                             else:
                                 st.success(f"✅ Prontinho! Recibo gerado e e-mail com imagem enviado com sucesso para a filial e para: {nome_formatado_cliente}.")
