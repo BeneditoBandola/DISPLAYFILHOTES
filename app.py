@@ -214,7 +214,9 @@ if codigo_input:
                     pdf.criar_via('VIA MINASSAL', cliente, id_recibo, data_hora, filial_selecionada)
                     
                     nome_arquivo = f"Recibo_{codigo_int}.pdf"
-                    pdf.output(nome_arquivo, 'F')
+                    
+                    # Correção aplicada nesta linha (remoção do 'F'):
+                    pdf.output(nome_arquivo)
                     
                     assunto = f'Envio de display Royal Canin Mini filhotes para o cliente "{nome_formatado_cliente} e {cliente["CÓDIGO"]} / {cliente["CIDADE"]} / {cliente["UF"]}"'
                     
