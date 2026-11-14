@@ -12,55 +12,26 @@ from email import encoders
 
 st.set_page_config(page_title="Emissão Rápida", layout="centered")
 
-# --- ESTILIZAÇÃO DO TEMA (Correção do Preto no Preto) ---
+# --- ESTILIZAÇÃO DO TEMA ---
 st.markdown("""
     <style>
-    .stApp {
-        background-color: #FFFFFF !important;
-    }
-    h1, h2, h3, p, label, .stMarkdown * {
-        color: #000000 !important;
-    }
-    div[data-baseweb="select"] > div, 
-    input, textarea {
+    .stApp { background-color: #FFFFFF !important; }
+    h1, h2, h3, p, label, .stMarkdown * { color: #000000 !important; }
+    div[data-baseweb="select"] > div, input, textarea {
         background-color: #FFFFFF !important;
         color: #000000 !important;
         border: 1px solid #CCCCCC !important;
     }
-    ul[data-baseweb="menu"] {
-        background-color: #FFFFFF !important;
-    }
-    li[data-baseweb="menu-item"], li[data-baseweb="menu-item"] * {
-        color: #000000 !important;
-    }
-    div[data-testid="stAlert"] {
-        background-color: #E8F5E9 !important;
-        border-color: #A5D6A7 !important;
-    }
-    div[data-testid="stAlert"] * {
-        color: #1B5E20 !important;
-    }
-    div[data-testid="stWarning"] {
-        background-color: #FFF3E0 !important;
-        border-color: #FFCC80 !important;
-    }
-    div[data-testid="stWarning"] * {
-        color: #E65100 !important;
-    }
-    div.stButton > button {
-        background-color: #D32F2F !important;
-        border: none !important;
-        font-weight: bold;
-    }
-    div.stButton > button * {
-        color: #FFFFFF !important; 
-    }
-    div.stButton > button:hover {
-        background-color: #B71C1C !important;
-    }
-    div[data-testid="stCheckbox"] span {
-        color: #000000 !important;
-    }
+    ul[data-baseweb="menu"] { background-color: #FFFFFF !important; }
+    li[data-baseweb="menu-item"], li[data-baseweb="menu-item"] * { color: #000000 !important; }
+    div[data-testid="stAlert"] { background-color: #E8F5E9 !important; border-color: #A5D6A7 !important; }
+    div[data-testid="stAlert"] * { color: #1B5E20 !important; }
+    div[data-testid="stWarning"] { background-color: #FFF3E0 !important; border-color: #FFCC80 !important; }
+    div[data-testid="stWarning"] * { color: #E65100 !important; }
+    div.stButton > button { background-color: #D32F2F !important; border: none !important; font-weight: bold; }
+    div.stButton > button * { color: #FFFFFF !important; }
+    div.stButton > button:hover { background-color: #B71C1C !important; }
+    div[data-testid="stCheckbox"] span { color: #000000 !important; font-weight: bold; }
     </style>
 """, unsafe_allow_html=True)
 
@@ -72,7 +43,6 @@ EMAILS_FILIAIS = {
     "Juiz de Fora": ["faturamentojf@minassal.com.br"]
 }
 
-# Lista com os seus dois e-mails
 MEUS_EMAILS = [
     "beneditobandola@gmail.com",
     "benedito.bandola@minassal.com.br"
@@ -84,7 +54,7 @@ def carregar_planilha():
     df.columns = df.columns.str.strip() 
     return df
 
-def enviar_email_gmail(destinatarios, cc_list, assunto, nome_cliente, caminho_pdf, observacao=""):
+def enviar_email_gmail(destinatarios, cc_list, assunto, nome_cliente, codigo_cliente, endereco_completo, caminho_pdf, observacao="", is_test=False):
     try:
         remetente = st.secrets["EMAIL_REMETENTE"]
         senha = st.secrets["SENHA_REMETENTE"]
@@ -94,6 +64,10 @@ def enviar_email_gmail(destinatarios, cc_list, assunto, nome_cliente, caminho_pd
         msg['To'] = ", ".join(destinatarios)
         if cc_list:
             msg['Cc'] = ", ".join(cc_list)
+            
+        if is_test:
+            assunto = "[TESTE DO SISTEMA - IGNORAR] " + assunto
+            
         msg['Subject'] = assunto
         
         msg_alt = MIMEMultipart('alternative')
@@ -102,23 +76,31 @@ def enviar_email_gmail(destinatarios, cc_list, assunto, nome_cliente, caminho_pd
         hora_atual = datetime.now().hour
         saudacao = "Bom dia" if hora_atual < 12 else ("Boa tarde" if hora_atual < 18 else "Boa noite")
         
-        # Montagem do corpo do e-mail com a observação (se existir)
-        html = f"""
-        <html>
-          <body style="font-family: Arial, sans-serif; color: #333; line-height: 1.5;">
+        html = """<html><body style="font-family: Arial, sans-serif; color: #333; line-height: 1.5;">"""
+        
+        if is_test:
+            html += """
+            <div style="background-color: #ffebee; border: 2px solid #b71c1c; padding: 15px; border-radius: 8px; text-align: center; margin-bottom: 20px;">
+                <h2 style="color: #b71c1c; margin: 0;">⚠️ TESTE DE SISTEMA ⚠️</h2>
+                <p style="color: #b71c1c; font-weight: bold; margin: 10px 0 0 0;">POR FAVOR, NÃO ENVIE NENHUM MATERIAL. ESTE É APENAS UM TESTE.</p>
+            </div>
+            """
+            
+        html += f"""
             <p>
               {saudacao},<br><br>
-              Por favor, quando possível, vai ter um pedido para este cliente ({nome_cliente}), 
-              poderia enviar o <b>display filhotes</b> com a carga por favor?<br><br>
+              Por favor, quando possível, vai ter um pedido para este cliente:<br>
+              <b>{codigo_cliente} - {nome_cliente}</b><br>
+              <b>Endereço de Entrega:</b> {endereco_completo}<br><br>
+              Poderia enviar o <b>display filhotes</b> com a carga por favor?<br><br>
         """
         
         if observacao.strip():
-            html += f"<p style='color: #D32F2F; font-weight: bold;'>⚠️ Observação: {observacao}</p><br>"
+            html += f"<p style='color: #D32F2F; font-weight: bold; border-left: 4px solid #D32F2F; padding-left: 10px;'>⚠️ Observação: {observacao}</p><br>"
             
         html += "Obrigado!</p>"
         
         imagem_path = "display.png" if os.path.exists("display.png") else ("display.jpg" if os.path.exists("display.jpg") else None)
-        
         if imagem_path:
             html += '<br><img src="cid:img_display" style="max-width: 250px; border-radius: 8px; border: 1px solid #ccc;"><br>'
             
@@ -153,23 +135,44 @@ def enviar_email_gmail(destinatarios, cc_list, assunto, nome_cliente, caminho_pd
         st.error(f"Erro ao enviar: {e}")
         return False
 
-# --- 2. GERADOR DO PDF ---
+# --- 2. GERADOR DO PDF ESTRUTURADO ---
 class ReciboPDF(FPDF):
     def criar_via(self, via, cliente, id_recibo, data_hora, filial):
-        if os.path.exists("logo.png"):
-            self.image("logo.png", 10, self.get_y(), w=30)
+        y_start = self.get_y()
+        
+        # LOGO (Busca por logo.png, logo.jpg ou logo.jpeg no Github)
+        caminho_logo = None
+        if os.path.exists("logo.png"): caminho_logo = "logo.png"
+        elif os.path.exists("logo.jpg"): caminho_logo = "logo.jpg"
+        elif os.path.exists("logo.jpeg"): caminho_logo = "logo.jpeg"
+        
+        if caminho_logo:
+            self.image(caminho_logo, x=10, y=y_start, w=35)
             
-        self.set_font('Arial', 'B', 14)
-        self.cell(0, 6, 'MINASSAL - DISTRIBUIDORA', ln=True, align='C')
-        self.set_font('Arial', '', 10)
-        self.cell(0, 5, 'DESDE 1986', ln=True, align='C')
-        self.ln(5)
+        # CABEÇALHO SUPERIOR
+        self.set_xy(50, y_start)
+        self.set_font('Arial', 'B', 16)
+        self.cell(0, 7, 'MINASSAL - DISTRIBUIDORA', ln=1)
         
+        self.set_x(50)
+        self.set_font('Arial', 'B', 10)
+        self.set_text_color(100, 100, 100)
+        self.cell(0, 5, 'DESDE 1986', ln=1)
+        
+        self.set_x(50)
+        self.set_font('Arial', '', 11)
+        self.set_text_color(0, 0, 0)
+        self.cell(0, 6, f'Recibo de Material | ID: {id_recibo}', ln=1)
+        
+        self.ln(6)
+        
+        # FAIXA DE IDENTIFICAÇÃO DA VIA
         self.set_font('Arial', 'B', 12)
-        self.cell(0, 6, f'Recibo de Material | ID: {id_recibo}', ln=True, align='C')
-        self.cell(0, 8, via, ln=True, align='C')
-        self.ln(2)
+        self.set_fill_color(220, 220, 220)
+        self.cell(0, 8, via, ln=1, align='C', fill=True)
+        self.ln(4)
         
+        # TRATAMENTO DE DADOS DO CLIENTE
         nome = str(cliente['NOME']).strip().encode('latin-1', 'replace').decode('latin-1')
         endereco = str(cliente['ENDEREÇO']).strip().encode('latin-1', 'replace').decode('latin-1')
         bairro = str(cliente['BAIRRO']).strip().encode('latin-1', 'replace').decode('latin-1')
@@ -177,59 +180,95 @@ class ReciboPDF(FPDF):
         uf = str(cliente['UF']).strip()
         codigo = str(cliente['CÓDIGO']).strip()
         filial_formatada = filial.encode('latin-1', 'replace').decode('latin-1')
+        end_completo = f'{endereco} - Bairro: {bairro} - {cidade}/{uf}'
         
-        self.set_font('Arial', 'B', 9)
-        self.cell(0, 5, f'CLIENTE: {codigo} - {nome}', ln=True)
+        # BLOCO DE CLIENTE
+        self.set_font('Arial', 'B', 10)
+        self.cell(20, 6, 'CLIENTE:', ln=0)
+        self.set_font('Arial', '', 10)
+        self.cell(0, 6, f'{codigo} - {nome}', ln=1)
         
-        self.set_font('Arial', '', 9)
-        end_completo = f'ENDERECO: {endereco} - Bairro: {bairro} - {cidade}/{uf}'
-        self.multi_cell(0, 5, end_completo)
-        self.cell(0, 5, f'DATA: {data_hora} | FILIAL: {filial_formatada}', ln=True)
-        self.ln(4)
+        self.set_font('Arial', 'B', 10)
+        self.cell(24, 6, 'ENDERECO:', ln=0)
+        self.set_font('Arial', '', 10)
+        self.multi_cell(0, 6, end_completo)
         
-        self.set_font('Arial', 'B', 9)
-        self.cell(150, 7, 'MATERIAL', border=1)
-        self.cell(40, 7, 'QTD', border=1, ln=True, align='C')
+        self.set_font('Arial', 'B', 10)
+        self.cell(12, 6, 'DATA:', ln=0)
+        self.set_font('Arial', '', 10)
+        self.cell(40, 6, f'{data_hora}', ln=0)
         
-        self.set_font('Arial', '', 9)
-        self.cell(150, 7, 'DISPLAY MINI CLIENTES - FILHOTES', border=1)
-        self.cell(40, 7, '1', border=1, ln=True, align='C')
+        self.set_font('Arial', 'B', 10)
+        self.cell(16, 6, 'FILIAL:', ln=0)
+        self.set_font('Arial', '', 10)
+        self.cell(0, 6, f'{filial_formatada}', ln=1)
+        
+        self.ln(6)
+        
+        # TABELA DE MATERIAL
+        self.set_font('Arial', 'B', 10)
+        self.set_fill_color(200, 200, 200)
+        self.cell(160, 8, ' MATERIAL', border=1, fill=True)
+        self.cell(30, 8, 'QTD', border=1, ln=1, align='C', fill=True)
+        
+        self.set_font('Arial', 'B', 10)
+        self.cell(160, 10, ' DISPLAY MINI CLIENTES - FILHOTES', border=1)
+        self.cell(30, 10, '1', border=1, ln=1, align='C')
         self.ln(2)
         
-        imagem_path = "display.png" if os.path.exists("display.png") else ("display.jpg" if os.path.exists("display.jpg") else None)
-        if imagem_path:
-            self.image(imagem_path, x=92, y=self.get_y(), w=25)
-            self.ln(28) 
+        # IMAGEM DO DISPLAY NO RECIBO (Se existir)
+        caminho_display = None
+        if os.path.exists("display.png"): caminho_display = "display.png"
+        elif os.path.exists("display.jpg"): caminho_display = "display.jpg"
+        
+        if caminho_display:
+            self.image(caminho_display, x=90, y=self.get_y(), w=30)
+            self.ln(35)
         else:
-            self.ln(12)
+            self.ln(20)
+            
+        # BLOCO DE ASSINATURAS
+        y_ass = self.get_y()
+        self.set_y(y_ass)
         
-        y = self.get_y()
-        self.set_xy(10, y)
-        self.cell(90, 5, '________________________________', align='C')
-        self.set_xy(110, y)
-        self.cell(90, 5, '________________________________', align='C', ln=True)
+        self.set_font('Arial', '', 10)
+        self.cell(85, 5, '______________________________________', align='C', ln=0)
+        self.cell(20, 5, '', ln=0)
+        self.cell(85, 5, '______________________________________', align='C', ln=1)
         
-        self.set_xy(10, self.get_y())
-        self.cell(90, 5, 'LOGISTICA MINASSAL', align='C')
-        self.set_xy(110, self.get_y() - 5)
-        self.cell(90, 5, 'ASSINATURA CLIENTE', align='C', ln=True)
-        self.ln(8)
+        self.set_font('Arial', 'B', 9)
+        self.cell(85, 5, 'LOGISTICA MINASSAL', align='C', ln=0)
+        self.cell(20, 5, '', ln=0)
+        self.cell(85, 5, 'ASSINATURA CLIENTE', align='C', ln=1)
         
-        self.set_draw_color(150, 150, 150)
-        self.line(10, self.get_y(), 200, self.get_y())
-        self.set_draw_color(0, 0, 0)
-        self.ln(8)
+        self.ln(10)
+        
+        # LINHA TRACEJADA DE CORTE
+        if via == 'VIA CLIENTE':
+            self.set_draw_color(100, 100, 100)
+            self.set_line_width(0.5)
+            y_corte = self.get_y()
+            for i in range(10, 200, 5):
+                self.line(i, y_corte, i+2, y_corte)
+            self.set_draw_color(0, 0, 0)
+            self.set_line_width(0.2)
+            self.ln(8)
 
-# --- 3. INTERFACE DE "UM CLIQUE" ---
+# --- 3. INTERFACE ---
 st.title("📦 Emissão Rápida - Display")
+
+if not os.path.exists("logo.png") and not os.path.exists("logo.jpg"):
+    st.warning("⚠️ O logotipo não foi encontrado no sistema. Suba um arquivo com o nome 'logo.png' ou 'logo.jpg' no GitHub para que ele apareça no PDF.")
+
+if not os.path.exists("display.png") and not os.path.exists("display.jpg"):
+    st.warning("⚠️ Imagem do display não encontrada. Suba um arquivo chamado 'display.png' no GitHub para resolver.")
 
 try:
     df_clientes = carregar_planilha()
 except FileNotFoundError:
-    st.error("O arquivo 'clientes base atualizado 14112026.csv' não foi encontrado.")
+    st.error("O arquivo de clientes não foi encontrado.")
     st.stop()
 
-# 1. Captura do Código
 codigo_input = st.text_input("1. Digite o Código do Cliente (Apenas números):", placeholder="Ex: 17129")
 
 if codigo_input:
@@ -245,28 +284,26 @@ if codigo_input:
             cliente = cliente_linha.iloc[0]
             nome_formatado_cliente = str(cliente["NOME"]).strip()
             
-            # --- TELA DE CONFIRMAÇÃO DO CLIENTE ---
+            endereco_completo = f"{cliente.get('ENDEREÇO', '-')}, {cliente.get('BAIRRO', '-')} - {cliente.get('CIDADE', '-')} / {cliente.get('UF', '-')}"
+            
             st.success("✅ Cliente Encontrado!")
             with st.container():
                 st.markdown(f"""
+                **Código:** {codigo_int}  
                 **Nome:** {nome_formatado_cliente}  
                 **Fantasia:** {cliente.get('NOME FANTASIA', '-')}  
-                **Cidade:** {cliente.get('CIDADE', '-')} / {cliente.get('UF', '-')}  
-                **Endereço:** {cliente.get('ENDEREÇO', '-')}, {cliente.get('BAIRRO', '-')}
+                **Endereço Completo:** {endereco_completo}
                 """)
             st.divider()
 
-            # 2. Seleção de Filial, Observações e Modo de Envio Exclusivo
             filial_selecionada = st.selectbox("2. Selecione a Filial:", list(EMAILS_FILIAIS.keys()))
+            observacao = st.text_input("📝 Observações para a logística (Opcional):")
             
-            observacao = st.text_input("📝 Observações para a logística (Opcional):", placeholder="Ex: Entregar à tarde, entregar nos fundos...")
+            modo_teste = st.checkbox("🧪 MODO TESTE (Apenas testa o sistema, envia só para mim com aviso de ignorar)", value=False)
             
-            enviar_so_para_mim = st.checkbox("📩 Enviar SOMENTE para os meus e-mails (Gmail e Minassal)", value=False)
-            
-            # 3. Botão de Envio
             if st.button("3. Gerar e Enviar E-mail 🚀"):
                 if "EMAIL_REMETENTE" not in st.secrets or "SENHA_REMETENTE" not in st.secrets:
-                    st.error("❌ Credenciais (Secrets) não cadastradas no Streamlit. Por favor, configure os secrets.")
+                    st.error("❌ Credenciais (Secrets) não cadastradas.")
                 else:
                     with st.spinner("Gerando recibo e disparando e-mail..."):
                         
@@ -282,9 +319,9 @@ if codigo_input:
                         nome_arquivo = f"Recibo_{codigo_int}.pdf"
                         pdf.output(nome_arquivo)
                         
-                        assunto = f'Envio de display Royal Canin Mini filhotes para o cliente "{nome_formatado_cliente} e {cliente["CÓDIGO"]} / {cliente["CIDADE"]} / {cliente["UF"]}"'
+                        assunto = f'Envio de display Royal Canin Mini filhotes para o cliente "{nome_formatado_cliente} - {endereco_completo}"'
                         
-                        if enviar_so_para_mim:
+                        if modo_teste:
                             emails_para = MEUS_EMAILS.copy()
                             cc_email = [] 
                         else:
@@ -294,11 +331,20 @@ if codigo_input:
                                 emails_para.append(email_cliente.strip())
                             cc_email = MEUS_EMAILS.copy()
                         
-                        # Passando a observação para a função de envio
-                        sucesso = enviar_email_gmail(emails_para, cc_email, assunto, nome_formatado_cliente, nome_arquivo, observacao)
+                        sucesso = enviar_email_gmail(
+                            destinatarios=emails_para, 
+                            cc_list=cc_email, 
+                            assunto=assunto, 
+                            nome_cliente=nome_formatado_cliente,
+                            codigo_cliente=codigo_int,
+                            endereco_completo=endereco_completo,
+                            caminho_pdf=nome_arquivo, 
+                            observacao=observacao, 
+                            is_test=modo_teste
+                        )
                         
                         if sucesso:
-                            if enviar_so_para_mim:
-                                st.success("✅ Recibo gerado e e-mail enviado APENAS para os seus e-mails.")
+                            if modo_teste:
+                                st.success("✅ TESTE BEM-SUCEDIDO: Recibo gerado e e-mail enviado APENAS para os seus e-mails.")
                             else:
-                                st.success(f"✅ Prontinho! Recibo gerado e e-mail com imagem enviado com sucesso para a filial e para: {nome_formatado_cliente}.")
+                                st.success(f"✅ Prontinho! Recibo e e-mail enviados para a filial e para {nome_formatado_cliente}.")
