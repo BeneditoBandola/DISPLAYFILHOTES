@@ -23,7 +23,8 @@ EMAIL_COPIA = "benedito.bandola@minassal.com.br"
 
 @st.cache_data
 def carregar_planilha():
-    df = pd.read_excel("clientes base atualizado 14112026.xlsx")
+    # Lê o novo arquivo CSV com detecção automática de separador (vírgula ou ponto e vírgula) e codificação correta
+    df = pd.read_csv("clientes base atualizado 14112026.csv", sep=None, engine='python', encoding='utf-8-sig')
     df.columns = df.columns.str.strip() 
     return df
 
@@ -32,7 +33,6 @@ def enviar_email_gmail(destinatarios, cc, assunto, nome_cliente, caminho_pdf):
         remetente = st.secrets["EMAIL_REMETENTE"]
         senha = st.secrets["SENHA_REMETENTE"]
         
-        # 'related' permite embutir a imagem no corpo do e-mail
         msg = MIMEMultipart('related')
         msg['From'] = remetente
         msg['To'] = ", ".join(destinatarios)
@@ -42,11 +42,9 @@ def enviar_email_gmail(destinatarios, cc, assunto, nome_cliente, caminho_pdf):
         msg_alt = MIMEMultipart('alternative')
         msg.attach(msg_alt)
         
-        # Define Saudação pelo horário
         hora_atual = datetime.now().hour
         saudacao = "Bom dia" if hora_atual < 12 else ("Boa tarde" if hora_atual < 18 else "Boa noite")
         
-        # Monta o HTML do E-mail com o texto exato que você pediu
         html = f"""
         <html>
           <body style="font-family: Arial, sans-serif; color: #333; line-height: 1.5;">
@@ -58,7 +56,6 @@ def enviar_email_gmail(destinatarios, cc, assunto, nome_cliente, caminho_pdf):
             </p>
         """
         
-        # Procura a imagem para colocar no E-mail
         imagem_path = "display.png" if os.path.exists("display.png") else ("display.jpg" if os.path.exists("display.jpg") else None)
         
         if imagem_path:
@@ -67,7 +64,6 @@ def enviar_email_gmail(destinatarios, cc, assunto, nome_cliente, caminho_pdf):
         html += "</body></html>"
         msg_alt.attach(MIMEText(html, 'html'))
         
-        # Anexa a Imagem inline (se existir)
         if imagem_path:
             with open(imagem_path, 'rb') as img_file:
                 img_mime = MIMEImage(img_file.read())
@@ -75,7 +71,6 @@ def enviar_email_gmail(destinatarios, cc, assunto, nome_cliente, caminho_pdf):
                 img_mime.add_header('Content-Disposition', 'inline')
                 msg.attach(img_mime)
         
-        # Anexa o PDF
         with open(caminho_pdf, "rb") as f:
             part = MIMEBase("application", "octet-stream")
             part.set_payload(f.read())
@@ -137,12 +132,10 @@ class ReciboPDF(FPDF):
         self.cell(40, 7, '1', border=1, ln=True, align='C')
         self.ln(2)
         
-        # Insere a imagem no PDF se ela existir no GitHub
         imagem_path = "display.png" if os.path.exists("display.png") else ("display.jpg" if os.path.exists("display.jpg") else None)
         if imagem_path:
-            # Centraliza a imagem do display logo abaixo do material (largura de 25mm para não ocupar muito espaço)
             self.image(imagem_path, x=92, y=self.get_y(), w=25)
-            self.ln(28) # Pula o espaço equivalente à altura da imagem
+            self.ln(28) 
         else:
             self.ln(12)
         
@@ -169,7 +162,7 @@ st.title("📦 Emissão Rápida - Display")
 try:
     df_clientes = carregar_planilha()
 except FileNotFoundError:
-    st.error("A planilha de clientes não foi encontrada.")
+    st.error("O arquivo 'clientes base atualizado 14112026.csv' não foi encontrado.")
     st.stop()
 
 codigo_input = st.text_input("1. Digite o Código do Cliente (Apenas números):", placeholder="Ex: 17129")
@@ -189,7 +182,6 @@ if st.button("3. Gerar e Enviar E-mail 🚀"):
                 cliente = cliente_linha.iloc[0]
                 nome_formatado_cliente = str(cliente["NOME"]).strip()
                 
-                # Gera PDF
                 pdf = ReciboPDF()
                 pdf.add_page()
                 agora = datetime.now()
@@ -202,7 +194,6 @@ if st.button("3. Gerar e Enviar E-mail 🚀"):
                 nome_arquivo = f"Recibo_{codigo_int}.pdf"
                 pdf.output(nome_arquivo, 'F')
                 
-                # Monta E-mail
                 assunto = f'Envio de display Royal Canin Mini filhotes para o cliente "{nome_formatado_cliente} e {cliente["CÓDIGO"]} / {cliente["CIDADE"]} / {cliente["UF"]}"'
                 
                 emails_para = EMAILS_FILIAIS[filial_selecionada].copy()
@@ -210,7 +201,6 @@ if st.button("3. Gerar e Enviar E-mail 🚀"):
                 if email_cliente != 'nan' and email_cliente.strip() != '':
                     emails_para.append(email_cliente.strip())
                 
-                # Envia
                 if "EMAIL_REMETENTE" in st.secrets and "SENHA_REMETENTE" in st.secrets:
                     sucesso = enviar_email_gmail(emails_para, EMAIL_COPIA, assunto, nome_formatado_cliente, nome_arquivo)
                     if sucesso:
