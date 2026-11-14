@@ -27,35 +27,23 @@ st.markdown("""
     ul[data-baseweb="menu"] { background-color: #FFFFFF !important; }
     li[data-baseweb="menu-item"], li[data-baseweb="menu-item"] * { color: #000000 !important; }
     
-    /* CORREÇÃO DA CAIXA VERDE (SUCESSO) PARA FICAR LEGÍVEL */
-    div[data-testid="stAlert"]:has(div[data-testid="stMarkdownContainer"]:contains("✅")) {
-        background-color: #E8F5E9 !important; /* Fundo verde claro */
-        border-color: #A5D6A7 !important;
-    }
-    div[data-testid="stAlert"]:has(div[data-testid="stMarkdownContainer"]:contains("✅")) * {
-        color: #1B5E20 !important; /* Texto verde escuro forte */
-        font-weight: bold;
-    }
-    
-    /* Caixas de Aviso (Amarelo) */
-    div[data-testid="stWarning"] { background-color: #FFF3E0 !important; border-color: #FFCC80 !important; }
-    div[data-testid="stWarning"] * { color: #E65100 !important; }
-    
-    /* Caixas de Erro (Vermelho) */
-    div[data-testid="stAlert"]:has(div[data-testid="stMarkdownContainer"]:contains("❌")) { 
-        background-color: #FFEBEE !important; 
-        border-color: #FFCDD2 !important; 
-    }
-    div[data-testid="stAlert"]:has(div[data-testid="stMarkdownContainer"]:contains("❌")) * { 
-        color: #B71C1C !important; 
-    }
-
     div.stButton > button { background-color: #D32F2F !important; border: none !important; font-weight: bold; }
     div.stButton > button * { color: #FFFFFF !important; }
     div.stButton > button:hover { background-color: #B71C1C !important; }
     div[data-testid="stCheckbox"] span { color: #000000 !important; font-weight: bold; }
     </style>
 """, unsafe_allow_html=True)
+
+# --- FUNÇÕES DE ALERTA PERSONALIZADAS (BLINDADAS CONTRA MODO ESCURO) ---
+def alerta_sucesso(texto):
+    st.markdown(f'<div style="background-color: #E8F5E9; padding: 12px; border-radius: 5px; border-left: 5px solid #4CAF50; color: #1B5E20; font-weight: bold; margin-bottom: 15px;">{texto}</div>', unsafe_allow_html=True)
+
+def alerta_aviso(texto):
+    st.markdown(f'<div style="background-color: #FFF3E0; padding: 12px; border-radius: 5px; border-left: 5px solid #FF9800; color: #E65100; font-weight: bold; margin-bottom: 15px;">{texto}</div>', unsafe_allow_html=True)
+
+def alerta_erro(texto):
+    st.markdown(f'<div style="background-color: #FFEBEE; padding: 12px; border-radius: 5px; border-left: 5px solid #F44336; color: #B71C1C; font-weight: bold; margin-bottom: 15px;">{texto}</div>', unsafe_allow_html=True)
+
 
 # --- 1. E-MAILS ---
 EMAILS_FILIAIS = {
@@ -154,7 +142,7 @@ def enviar_email_gmail(destinatarios, cc_list, assunto, nome_cliente, codigo_cli
         server.quit()
         return True
     except Exception as e:
-        st.error(f"Erro ao enviar: {e}")
+        alerta_erro(f"❌ Erro ao enviar: {e}")
         return False
 
 # --- 2. GERADOR DO PDF (1 VIA POR PÁGINA) ---
@@ -262,35 +250,37 @@ class ReciboPDF(FPDF):
 st.title("📦 Emissão Rápida - Display")
 
 if not os.path.exists("logo.png") and not os.path.exists("logo.jpg"):
-    st.warning("⚠️ O logotipo não foi encontrado no sistema. Suba um arquivo com o nome 'logo.png' ou 'logo.jpg' no GitHub para que ele apareça no PDF.")
+    alerta_aviso("⚠️ O logotipo não foi encontrado no sistema. Suba um arquivo com o nome 'logo.png' ou 'logo.jpg' no GitHub para que ele apareça no PDF.")
 
 if not os.path.exists("display.png") and not os.path.exists("display.jpg"):
-    st.warning("⚠️ Imagem do display não encontrada. Suba um arquivo chamado 'display.png' no GitHub para resolver o e-mail.")
+    alerta_aviso("⚠️ Imagem do display não encontrada. Suba um arquivo chamado 'display.png' no GitHub para resolver o e-mail.")
 
 try:
     df_clientes = carregar_planilha()
 except FileNotFoundError:
-    st.error("O arquivo de clientes não foi encontrado.")
+    alerta_erro("❌ O arquivo de clientes não foi encontrado.")
     st.stop()
 
 codigo_input = st.text_input("1. Digite o Código do Cliente (Apenas números):", placeholder="Ex: 17129")
 
 if codigo_input:
     if not codigo_input.isdigit():
-        st.warning("⚠️ Digite apenas números no código.")
+        alerta_aviso("⚠️ Digite apenas números no código.")
     else:
         codigo_int = int(codigo_input)
         cliente_linha = df_clientes[df_clientes['CÓDIGO'] == codigo_int]
         
         if cliente_linha.empty:
-            st.error("❌ Cliente não encontrado. Verifique o código.")
+            alerta_erro("❌ Cliente não encontrado. Verifique o código.")
         else:
             cliente = cliente_linha.iloc[0]
             nome_formatado_cliente = str(cliente["NOME"]).strip()
             
             endereco_completo = f"{cliente.get('ENDEREÇO', '-')}, {cliente.get('BAIRRO', '-')} - {cliente.get('CIDADE', '-')} / {cliente.get('UF', '-')}"
             
-            st.success("✅ Cliente Encontrado!")
+            # Substituído pelo novo alerta de sucesso:
+            alerta_sucesso("✅ Cliente Encontrado!")
+            
             with st.container():
                 st.markdown(f"""
                 **Código:** {codigo_int}  
@@ -307,7 +297,7 @@ if codigo_input:
             
             if st.button("3. Gerar e Enviar E-mail 🚀"):
                 if "EMAIL_REMETENTE" not in st.secrets or "SENHA_REMETENTE" not in st.secrets:
-                    st.error("❌ Credenciais (Secrets) não cadastradas.")
+                    alerta_erro("❌ Credenciais (Secrets) não cadastradas.")
                 else:
                     with st.spinner("Gerando recibo e disparando e-mail..."):
                         
@@ -351,6 +341,6 @@ if codigo_input:
                         
                         if sucesso:
                             if modo_teste:
-                                st.success("✅ TESTE BEM-SUCEDIDO: Recibo gerado em 2 páginas separadas e e-mail enviado APENAS para os seus e-mails.")
+                                alerta_sucesso("✅ TESTE BEM-SUCEDIDO: Recibo gerado em 2 páginas separadas e e-mail enviado APENAS para os seus e-mails.")
                             else:
-                                st.success(f"✅ Prontinho! Recibo e e-mail enviados para a filial e para {nome_formatado_cliente}.")
+                                alerta_sucesso(f"✅ Prontinho! Recibo e e-mail enviados para a filial e para {nome_formatado_cliente}.")
