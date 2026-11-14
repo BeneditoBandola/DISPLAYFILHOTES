@@ -100,7 +100,6 @@ def enviar_email_gmail(destinatarios, cc_list, assunto, nome_cliente, codigo_cli
             
         html += "Obrigado!</p>"
         
-        # A foto continua no e-mail para ajudar a logística
         imagem_path = "display.png" if os.path.exists("display.png") else ("display.jpg" if os.path.exists("display.jpg") else None)
         if imagem_path:
             html += '<br><img src="cid:img_display" style="max-width: 250px; border-radius: 8px; border: 1px solid #ccc;"><br>'
@@ -136,7 +135,7 @@ def enviar_email_gmail(destinatarios, cc_list, assunto, nome_cliente, codigo_cli
         st.error(f"Erro ao enviar: {e}")
         return False
 
-# --- 2. GERADOR DO PDF (Livre da foto do display) ---
+# --- 2. GERADOR DO PDF (1 VIA POR PÁGINA) ---
 class ReciboPDF(FPDF):
     def criar_via(self, via, cliente, id_recibo, data_hora, filial):
         y_start = self.get_y()
@@ -163,7 +162,6 @@ class ReciboPDF(FPDF):
         self.set_text_color(0, 0, 0)
         self.cell(0, 6, f'Recibo de Material | ID: {id_recibo}', ln=1)
         
-        # Garante que a barra cinzenta nunca sobrepõe o logotipo, mesmo que o logo seja grande
         y_atual = self.get_y()
         y_apos_logo = y_start + 25 
         if y_atual < y_apos_logo:
@@ -197,7 +195,6 @@ class ReciboPDF(FPDF):
         self.set_font('Arial', '', 10)
         self.multi_cell(0, 6, end_completo)
         
-        # Trava para garantir que a Data volta para a margem esquerda e não corta
         self.set_x(10)
         self.set_font('Arial', 'B', 10)
         self.cell(12, 6, 'DATA:', ln=0)
@@ -222,8 +219,7 @@ class ReciboPDF(FPDF):
         self.cell(160, 10, ' DISPLAY MINI CLIENTES - FILHOTES', border=1)
         self.cell(30, 10, '1', border=1, ln=1, align='C')
         
-        # Espaçamento menor porque a foto já não ocupa espaço
-        self.ln(15)
+        self.ln(25)
             
         y_ass = self.get_y()
         self.set_y(y_ass)
@@ -240,17 +236,7 @@ class ReciboPDF(FPDF):
         self.cell(20, 5, '', ln=0)
         self.cell(85, 5, 'ASSINATURA CLIENTE', align='C', ln=1)
         
-        self.ln(10)
-        
-        if via == 'VIA CLIENTE':
-            self.set_draw_color(100, 100, 100)
-            self.set_line_width(0.5)
-            y_corte = self.get_y()
-            for i in range(10, 200, 5):
-                self.line(i, y_corte, i+2, y_corte)
-            self.set_draw_color(0, 0, 0)
-            self.set_line_width(0.2)
-            self.ln(12)
+        # A linha de corte foi removida para garantir que a página fique limpa.
 
 # --- 3. INTERFACE ---
 st.title("📦 Emissão Rápida - Display")
@@ -306,12 +292,16 @@ if codigo_input:
                     with st.spinner("Gerando recibo e disparando e-mail..."):
                         
                         pdf = ReciboPDF()
+                        
+                        # Página 1: Via Cliente
                         pdf.add_page()
                         agora = datetime.now()
                         data_hora = agora.strftime("%d/%m/%Y %H:%M")
                         id_recibo = agora.strftime("%y%m%d%H%M%S") 
-                        
                         pdf.criar_via('VIA CLIENTE', cliente, id_recibo, data_hora, filial_selecionada)
+                        
+                        # Página 2: Via Minassal
+                        pdf.add_page()
                         pdf.criar_via('VIA MINASSAL', cliente, id_recibo, data_hora, filial_selecionada)
                         
                         nome_arquivo = f"Recibo_{codigo_int}.pdf"
@@ -343,6 +333,6 @@ if codigo_input:
                         
                         if sucesso:
                             if modo_teste:
-                                st.success("✅ TESTE BEM-SUCEDIDO: Recibo gerado e e-mail enviado APENAS para os seus e-mails.")
+                                st.success("✅ TESTE BEM-SUCEDIDO: Recibo gerado em 2 páginas separadas e e-mail enviado APENAS para os seus e-mails.")
                             else:
-                                st.success(f"✅ Prontinho! Recibo e e-mail enviados para a filial e para {nome_formatado_cliente}.")
+                                st.success(f"✅ Prontinho! Recibo (2 páginas) e e-mail enviados para a filial e para {nome_formatado_cliente}.")
