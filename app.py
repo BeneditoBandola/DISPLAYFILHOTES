@@ -100,6 +100,7 @@ def enviar_email_gmail(destinatarios, cc_list, assunto, nome_cliente, codigo_cli
             
         html += "Obrigado!</p>"
         
+        # A foto continua no e-mail para ajudar a logística
         imagem_path = "display.png" if os.path.exists("display.png") else ("display.jpg" if os.path.exists("display.jpg") else None)
         if imagem_path:
             html += '<br><img src="cid:img_display" style="max-width: 250px; border-radius: 8px; border: 1px solid #ccc;"><br>'
@@ -135,12 +136,11 @@ def enviar_email_gmail(destinatarios, cc_list, assunto, nome_cliente, codigo_cli
         st.error(f"Erro ao enviar: {e}")
         return False
 
-# --- 2. GERADOR DO PDF ESTRUTURADO ---
+# --- 2. GERADOR DO PDF (Livre da foto do display) ---
 class ReciboPDF(FPDF):
     def criar_via(self, via, cliente, id_recibo, data_hora, filial):
         y_start = self.get_y()
         
-        # LOGO (Busca por logo.png, logo.jpg ou logo.jpeg no Github)
         caminho_logo = None
         if os.path.exists("logo.png"): caminho_logo = "logo.png"
         elif os.path.exists("logo.jpg"): caminho_logo = "logo.jpg"
@@ -149,7 +149,6 @@ class ReciboPDF(FPDF):
         if caminho_logo:
             self.image(caminho_logo, x=10, y=y_start, w=35)
             
-        # CABEÇALHO SUPERIOR
         self.set_xy(50, y_start)
         self.set_font('Arial', 'B', 16)
         self.cell(0, 7, 'MINASSAL - DISTRIBUIDORA', ln=1)
@@ -164,15 +163,19 @@ class ReciboPDF(FPDF):
         self.set_text_color(0, 0, 0)
         self.cell(0, 6, f'Recibo de Material | ID: {id_recibo}', ln=1)
         
-        self.ln(6)
+        # Garante que a barra cinzenta nunca sobrepõe o logotipo, mesmo que o logo seja grande
+        y_atual = self.get_y()
+        y_apos_logo = y_start + 25 
+        if y_atual < y_apos_logo:
+            self.set_y(y_apos_logo)
+        else:
+            self.ln(2)
         
-        # FAIXA DE IDENTIFICAÇÃO DA VIA
         self.set_font('Arial', 'B', 12)
         self.set_fill_color(220, 220, 220)
         self.cell(0, 8, via, ln=1, align='C', fill=True)
         self.ln(4)
         
-        # TRATAMENTO DE DADOS DO CLIENTE
         nome = str(cliente['NOME']).strip().encode('latin-1', 'replace').decode('latin-1')
         endereco = str(cliente['ENDEREÇO']).strip().encode('latin-1', 'replace').decode('latin-1')
         bairro = str(cliente['BAIRRO']).strip().encode('latin-1', 'replace').decode('latin-1')
@@ -182,17 +185,20 @@ class ReciboPDF(FPDF):
         filial_formatada = filial.encode('latin-1', 'replace').decode('latin-1')
         end_completo = f'{endereco} - Bairro: {bairro} - {cidade}/{uf}'
         
-        # BLOCO DE CLIENTE
+        self.set_x(10)
         self.set_font('Arial', 'B', 10)
         self.cell(20, 6, 'CLIENTE:', ln=0)
         self.set_font('Arial', '', 10)
         self.cell(0, 6, f'{codigo} - {nome}', ln=1)
         
+        self.set_x(10)
         self.set_font('Arial', 'B', 10)
         self.cell(24, 6, 'ENDERECO:', ln=0)
         self.set_font('Arial', '', 10)
         self.multi_cell(0, 6, end_completo)
         
+        # Trava para garantir que a Data volta para a margem esquerda e não corta
+        self.set_x(10)
         self.set_font('Arial', 'B', 10)
         self.cell(12, 6, 'DATA:', ln=0)
         self.set_font('Arial', '', 10)
@@ -205,37 +211,30 @@ class ReciboPDF(FPDF):
         
         self.ln(6)
         
-        # TABELA DE MATERIAL
+        self.set_x(10)
         self.set_font('Arial', 'B', 10)
         self.set_fill_color(200, 200, 200)
         self.cell(160, 8, ' MATERIAL', border=1, fill=True)
         self.cell(30, 8, 'QTD', border=1, ln=1, align='C', fill=True)
         
+        self.set_x(10)
         self.set_font('Arial', 'B', 10)
         self.cell(160, 10, ' DISPLAY MINI CLIENTES - FILHOTES', border=1)
         self.cell(30, 10, '1', border=1, ln=1, align='C')
-        self.ln(2)
         
-        # IMAGEM DO DISPLAY NO RECIBO (Se existir)
-        caminho_display = None
-        if os.path.exists("display.png"): caminho_display = "display.png"
-        elif os.path.exists("display.jpg"): caminho_display = "display.jpg"
-        
-        if caminho_display:
-            self.image(caminho_display, x=90, y=self.get_y(), w=30)
-            self.ln(35)
-        else:
-            self.ln(20)
+        # Espaçamento menor porque a foto já não ocupa espaço
+        self.ln(15)
             
-        # BLOCO DE ASSINATURAS
         y_ass = self.get_y()
         self.set_y(y_ass)
+        self.set_x(10)
         
         self.set_font('Arial', '', 10)
         self.cell(85, 5, '______________________________________', align='C', ln=0)
         self.cell(20, 5, '', ln=0)
         self.cell(85, 5, '______________________________________', align='C', ln=1)
         
+        self.set_x(10)
         self.set_font('Arial', 'B', 9)
         self.cell(85, 5, 'LOGISTICA MINASSAL', align='C', ln=0)
         self.cell(20, 5, '', ln=0)
@@ -243,7 +242,6 @@ class ReciboPDF(FPDF):
         
         self.ln(10)
         
-        # LINHA TRACEJADA DE CORTE
         if via == 'VIA CLIENTE':
             self.set_draw_color(100, 100, 100)
             self.set_line_width(0.5)
@@ -252,7 +250,7 @@ class ReciboPDF(FPDF):
                 self.line(i, y_corte, i+2, y_corte)
             self.set_draw_color(0, 0, 0)
             self.set_line_width(0.2)
-            self.ln(8)
+            self.ln(12)
 
 # --- 3. INTERFACE ---
 st.title("📦 Emissão Rápida - Display")
@@ -261,7 +259,7 @@ if not os.path.exists("logo.png") and not os.path.exists("logo.jpg"):
     st.warning("⚠️ O logotipo não foi encontrado no sistema. Suba um arquivo com o nome 'logo.png' ou 'logo.jpg' no GitHub para que ele apareça no PDF.")
 
 if not os.path.exists("display.png") and not os.path.exists("display.jpg"):
-    st.warning("⚠️ Imagem do display não encontrada. Suba um arquivo chamado 'display.png' no GitHub para resolver.")
+    st.warning("⚠️ Imagem do display não encontrada. Suba um arquivo chamado 'display.png' no GitHub para resolver o e-mail.")
 
 try:
     df_clientes = carregar_planilha()
