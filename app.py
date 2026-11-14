@@ -35,21 +35,48 @@ def salvar_dados(dados):
     with open(ARQUIVO_DADOS, "w", encoding="utf-8") as f:
         json.dump(dados, f, ensure_ascii=False, indent=4)
 
-# --- ESTILIZAÇÃO DO TEMA ---
+# --- ESTILIZAÇÃO DO TEMA (COM CORES FORTES NA ABA LATERAL) ---
 st.markdown("""
     <style>
+    /* Fundo da página principal branco */
     .stApp { background-color: #FFFFFF !important; }
-    h1, h2, h3, p, label, .stMarkdown * { color: #000000 !important; }
     
+    /* Textos principais da página principal em preto */
+    .stApp h1, .stApp h2, .stApp h3, .stApp p, .stApp label { color: #000000 !important; }
+    
+    /* ESTILIZAÇÃO FORTE DA ABA LATERAL (SIDEBAR) PARA CONTRASTE PERFEITO */
+    [data-testid="stSidebar"] {
+        background-color: #1E1E1E !important; /* Fundo escuro sólido */
+    }
+    
+    /* Todos os textos, títulos e labels dentro da barra lateral ficam BRANCOS */
+    [data-testid="stSidebar"] h1, 
+    [data-testid="stSidebar"] h2, 
+    [data-testid="stSidebar"] h3, 
+    [data-testid="stSidebar"] p, 
+    [data-testid="stSidebar"] span, 
+    [data-testid="stSidebar"] label,
+    [data-testid="stSidebar"] div {
+        color: #FFFFFF !important;
+    }
+    
+    /* Valores de estoque na lateral em AMARELO BRILHANTE para destaque */
+    [data-testid="stSidebar"] strong {
+        color: #FFEB3B !important;
+    }
+    
+    /* Campos de entrada e menus */
     div[data-baseweb="select"] > div, input, textarea {
         background-color: #FFFFFF !important; color: #000000 !important; border: 1px solid #CCCCCC !important;
     }
     ul[data-baseweb="menu"] { background-color: #FFFFFF !important; }
     li[data-baseweb="menu-item"], li[data-baseweb="menu-item"] * { color: #000000 !important; }
     
+    /* Botões Vermelhos */
     div.stButton > button { background-color: #D32F2F !important; border: none !important; font-weight: bold; }
     div.stButton > button * { color: #FFFFFF !important; }
     div.stButton > button:hover { background-color: #B71C1C !important; }
+    
     div[data-testid="stCheckbox"] span { color: #000000 !important; font-weight: bold; }
     div[role="radiogroup"] label { color: #000000 !important; }
     </style>
@@ -276,7 +303,7 @@ class ReciboPDF(FPDF):
         self.cell(85, 5, 'ASSINATURA CLIENTE', align='C', ln=1)
 
 
-# --- MENU LATERAL (ADMINISTRAÇÃO DE ESTOQUE E HISTÓRICO JSON) ---
+# --- MENU LATERAL (ADMINISTRAÇÃO COM CORES FORTES E LEGÍVEIS) ---
 with st.sidebar:
     st.header("⚙️ Gestão de Envios")
     dados = carregar_dados()
@@ -284,7 +311,7 @@ with st.sidebar:
     st.subheader("📦 Estoque por Filial")
     for fil in FILIAIS_LISTA:
         saldo = dados["estoque"].get(fil, 0)
-        st.write(f"**{fil}:** {saldo} unidades")
+        st.markdown(f"<p style='color: #FFFFFF; font-size: 15px;'><b>{fil}:</b> <span style='color: #FFEB3B; font-size: 18px;'>{saldo}</span> unidades</p>", unsafe_allow_html=True)
         
     with st.expander("Atualizar Saldo de Displays"):
         novos_saldos = {}
@@ -428,7 +455,7 @@ if cliente is not None and codigo_int is not None:
                 )
                 
                 if sucesso:
-                    # Apenas abate do estoque, grava histórico e avisa se NÃO for modo teste
+                    # Se for modo teste, NÃO abate do estoque e NÃO regista no histórico definitivo
                     if not modo_teste:
                         dados_app["estoque"][filial_selecionada] -= 1
                         
