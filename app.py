@@ -9,42 +9,31 @@ from email.mime.base import MIMEBase
 from email.mime.text import MIMEText
 from email.mime.image import MIMEImage
 from email import encoders
+import json
 
 st.set_page_config(page_title="Emissão Rápida", layout="centered", initial_sidebar_state="expanded")
 
-# --- ARQUIVOS DE DADOS LOCAIS ---
-ARQUIVO_ESTOQUE = "estoque_displays.txt"
-ARQUIVO_HISTORICO = "historico_envios.csv"
+# --- BANCO DE DADOS LOCAL (JSON) ---
+ARQUIVO_DADOS = "banco_dados.json"
+FILIAIS_LISTA = ["São João da Boa Vista", "São José do Rio Preto", "Poços de Caldas", "Juiz de Fora"]
 
-def ler_estoque():
-    if os.path.exists(ARQUIVO_ESTOQUE):
-        with open(ARQUIVO_ESTOQUE, "r") as f:
-            try:
-                return int(f.read().strip())
-            except:
-                return 0
-    return 0
+def inicializar_banco():
+    if not os.path.exists(ARQUIVO_DADOS):
+        dados_iniciais = {
+            "estoque": {f: 0 for f in FILIAIS_LISTA},
+            "historico": []
+        }
+        with open(ARQUIVO_DADOS, "w", encoding="utf-8") as f:
+            json.dump(dados_iniciais, f, ensure_ascii=False, indent=4)
 
-def salvar_estoque(qtd):
-    with open(ARQUIVO_ESTOQUE, "w") as f:
-        f.write(str(qtd))
+def carregar_dados():
+    inicializar_banco()
+    with open(ARQUIVO_DADOS, "r", encoding="utf-8") as f:
+        return json.load(f)
 
-def registrar_historico(codigo, nome, filial, data_hora, email_add):
-    novo_dado = pd.DataFrame([{
-        "DATA_HORA": data_hora,
-        "CÓDIGO": codigo,
-        "CLIENTE": nome,
-        "FILIAL": filial,
-        "EMAIL_ADICIONAL": email_add if email_add else "Nenhum"
-    }])
-    
-    if os.path.exists(ARQUIVO_HISTORICO):
-        df_hist = pd.read_csv(ARQUIVO_HISTORICO)
-        df_hist = pd.concat([df_hist, novo_dado], ignore_index=True)
-    else:
-        df_hist = novo_dado
-        
-    df_hist.to_csv(ARQUIVO_HISTORICO, index=False)
+def salvar_dados(dados):
+    with open(ARQUIVO_DADOS, "w", encoding="utf-8") as f:
+        json.dump(dados, f, ensure_ascii=False, indent=4)
 
 # --- ESTILIZAÇÃO DO TEMA ---
 st.markdown("""
@@ -94,7 +83,7 @@ def carregar_planilha():
     df.columns = df.columns.str.strip() 
     return df
 
-def enviar_aviso_estoque(estoque_atual):
+def enviar_aviso_estoque(filial, estoque_atual):
     try:
         remetente = st.secrets["EMAIL_REMETENTE"]
         senha = st.secrets["SENHA_REMETENTE"]
@@ -102,14 +91,14 @@ def enviar_aviso_estoque(estoque_atual):
         msg = MIMEMultipart('alternative')
         msg['From'] = remetente
         msg['To'] = ", ".join(MEUS_EMAILS)
-        msg['Subject'] = f"📦 ATUALIZAÇÃO DE ESTOQUE: Restam {estoque_atual} Displays"
+        msg['Subject'] = f"📦 ESTOQUE {filial.upper()}: Restam {estoque_atual} Displays"
         
         html = f"""
         <html>
             <body style="font-family: Arial, sans-serif; color: #333;">
                 <h2 style="color: #D32F2F;">Controle de Estoque - Displays Minassal</h2>
-                <p>Um novo display de filhotes acabou de ser emitido e enviado.</p>
-                <p>O seu saldo atualizado em estoque é de:</p>
+                <p>Um novo display foi abatido do estoque de faturamento da filial: <b>{filial}</b>.</p>
+                <p>O saldo atualizado para esta filial é de:</p>
                 <h1 style="font-size: 40px; color: #1B5E20;">{estoque_atual} unidades</h1>
                 <hr>
                 <p style="font-size: 12px; color: #666;">Mensagem automática do sistema de emissão rápida.</p>
@@ -124,7 +113,7 @@ def enviar_aviso_estoque(estoque_atual):
         server.sendmail(remetente, MEUS_EMAILS, msg.as_string())
         server.quit()
     except:
-        pass # Falha no aviso de estoque não impede o funcionamento do app
+        pass 
 
 def enviar_email_gmail(destinatarios, cc_list, assunto, nome_cliente, codigo_cliente, endereco_completo, caminho_pdf, observacao="", is_test=False):
     try:
@@ -286,26 +275,33 @@ class ReciboPDF(FPDF):
         self.cell(85, 5, 'ASSINATURA CLIENTE', align='C', ln=1)
 
 
-# --- MENU LATERAL (ADMINISTRAÇÃO DE ESTOQUE E HISTÓRICO) ---
+# --- MENU LATERAL (ADMINISTRAÇÃO DE ESTOQUE E HISTÓRICO JSON) ---
 with st.sidebar:
     st.header("⚙️ Gestão de Envios")
+    dados = carregar_dados()
     
-    estoque_atual = ler_estoque()
-    st.metric(label="📦 Displays em Estoque", value=estoque_atual)
-    
+    st.subheader("📦 Estoque por Filial")
+    for fil in FILIAIS_LISTA:
+        saldo = dados["estoque"].get(fil, 0)
+        st.write(f"**{fil}:** {saldo} unidades")
+        
     with st.expander("Atualizar Saldo de Displays"):
-        novo_saldo = st.number_input("Digite o novo saldo total:", min_value=0, value=estoque_atual, step=1)
-        if st.button("Salvar Saldo"):
-            salvar_estoque(novo_saldo)
-            st.success("Saldo salvo com sucesso!")
+        novos_saldos = {}
+        for fil in FILIAIS_LISTA:
+            saldo_atual = dados["estoque"].get(fil, 0)
+            novos_saldos[fil] = st.number_input(f"Saldo de {fil}:", min_value=0, value=saldo_atual, step=1)
+            
+        if st.button("Salvar Novos Saldos"):
+            dados["estoque"] = novos_saldos
+            salvar_dados(dados)
+            st.success("Saldos atualizados no JSON!")
             st.rerun()
             
     st.divider()
-    st.subheader("📜 Histórico")
-    if os.path.exists(ARQUIVO_HISTORICO):
-        df_historico = pd.read_csv(ARQUIVO_HISTORICO)
+    st.subheader("📜 Histórico (JSON)")
+    if dados["historico"]:
+        df_historico = pd.DataFrame(dados["historico"])
         st.dataframe(df_historico, use_container_width=True)
-        # Permite baixar o CSV nativamente passando o mouse sobre a tabela
     else:
         st.info("Nenhum envio registrado ainda.")
 
@@ -373,15 +369,18 @@ if cliente is not None and codigo_int is not None:
     else: opcoes_filial = list(EMAILS_FILIAIS.keys())
 
     filial_selecionada = st.selectbox("2. Selecione a Filial de Faturamento:", opcoes_filial)
+    
+    # Carrega dados do JSON para checar o estoque antes do envio
+    dados_app = carregar_dados()
+    estoque_filial_atual = dados_app["estoque"].get(filial_selecionada, 0)
+    
     observacao = st.text_input("📝 Observações para a logística (Opcional):")
-    
     email_adicional = st.text_input("📧 E-mail adicional para receber cópia (Opcional):", placeholder="Ex: supervisor@minassal.com.br")
-    
     modo_teste = st.checkbox("🧪 MODO TESTE (Testa o sistema, envia só para os meus e-mails com aviso de ignorar)", value=False)
     
     if st.button("3. Gerar e Enviar E-mail 🚀"):
-        if estoque_atual <= 0 and not modo_teste:
-            st.warning("⚠️ Atenção: O estoque de displays consta como zero. Atualize no menu lateral antes de emitir novos, ou o estoque ficará negativo.")
+        if estoque_filial_atual <= 0 and not modo_teste:
+            st.warning(f"⚠️ Atenção: O estoque da filial {filial_selecionada} consta como zero. Atualize no menu lateral antes de emitir novos, ou o estoque ficará negativo.")
             
         if "EMAIL_REMETENTE" not in st.secrets or "SENHA_REMETENTE" not in st.secrets:
             alerta_erro("❌ Credenciais (Secrets) não cadastradas no Streamlit.")
@@ -403,7 +402,6 @@ if cliente is not None and codigo_int is not None:
                 
                 assunto = f'Envio de display Royal Canin Mini filhotes para o cliente "{nome_formatado_cliente} - {endereco_completo}"'
                 
-                # Configuração dos e-mails
                 if modo_teste:
                     emails_para = MEUS_EMAILS.copy()
                     cc_email = []
@@ -430,12 +428,23 @@ if cliente is not None and codigo_int is not None:
                 )
                 
                 if sucesso:
-                    # Abate do estoque, salva histórico e envia notificação de saldo
                     if not modo_teste:
-                        novo_estoque = estoque_atual - 1
-                        salvar_estoque(novo_estoque)
-                        registrar_historico(codigo_int, nome_formatado_cliente, filial_selecionada, data_hora, email_adicional)
-                        enviar_aviso_estoque(novo_estoque)
+                        # Abate estoque da filial específica
+                        dados_app["estoque"][filial_selecionada] -= 1
+                        
+                        # Grava histórico no JSON
+                        dados_app["historico"].append({
+                            "data_hora": data_hora,
+                            "codigo": codigo_int,
+                            "cliente": nome_formatado_cliente,
+                            "filial": filial_selecionada,
+                            "email_adicional": email_adicional.strip() if email_adicional.strip() else "Nenhum"
+                        })
+                        
+                        # Salva o arquivo JSON e envia o aviso
+                        salvar_dados(dados_app)
+                        novo_estoque = dados_app["estoque"][filial_selecionada]
+                        enviar_aviso_estoque(filial_selecionada, novo_estoque)
                     
                     if modo_teste:
                         alerta_sucesso("✅ TESTE BEM-SUCEDIDO: E-mail enviado APENAS para os seus e-mails.")
