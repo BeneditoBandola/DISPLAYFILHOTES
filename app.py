@@ -12,6 +12,51 @@ from email import encoders
 
 st.set_page_config(page_title="Emissão Rápida", layout="centered")
 
+# --- ESTILIZAÇÃO DO TEMA (Branco, Preto e Vermelho) ---
+st.markdown("""
+    <style>
+    /* Fundo branco e texto preto geral */
+    .stApp {
+        background-color: #FFFFFF;
+        color: #000000;
+    }
+    
+    /* Cor dos textos e títulos */
+    h1, h2, h3, p, span, label {
+        color: #000000 !important;
+    }
+    
+    /* Estilização do Botão Principal (Vermelho) */
+    div.stButton > button:first-child {
+        background-color: #D32F2F !important;
+        color: #FFFFFF !important;
+        border: none !important;
+        font-weight: bold;
+    }
+    div.stButton > button:first-child:hover {
+        background-color: #B71C1C !important;
+        color: #FFFFFF !important;
+    }
+    
+    /* Caixas de input e select */
+    .stTextInput input, .stSelectbox div[data-baseweb="select"] > div {
+        background-color: #F5F5F5 !important;
+        color: #000000 !important;
+        border: 1px solid #CCCCCC !important;
+    }
+    
+    /* Cor de sucesso e aviso adaptadas para ficar legíveis no fundo claro */
+    div[data-testid="stSuccess"] {
+        background-color: #E8F5E9 !important;
+        color: #1B5E20 !important;
+    }
+    div[data-testid="stWarning"] {
+        background-color: #FFF3E0 !important;
+        color: #E65100 !important;
+    }
+    </style>
+""", unsafe_allow_html=True)
+
 # --- 1. E-MAILS ---
 EMAILS_FILIAIS = {
     "São João da Boa Vista": ["faturamentosjbv@minassal.com.br", "patricia.anunciacao@minassal.com.br"],
@@ -196,46 +241,45 @@ if codigo_input:
                 """)
             st.divider()
 
-            # 2. Seleção de Filial e Modo Teste (Só aparecem se o cliente estiver correto)
+            # 2. Seleção de Filial e Modo Teste
             filial_selecionada = st.selectbox("2. Selecione a Filial:", list(EMAILS_FILIAIS.keys()))
             modo_teste = st.checkbox("🧪 Modo Teste (Enviar apenas para mim)", value=False)
             
             # 3. Botão de Envio
             if st.button("3. Gerar e Enviar E-mail 🚀"):
-                with st.spinner("Gerando recibo e disparando e-mail..."):
-                    
-                    pdf = ReciboPDF()
-                    pdf.add_page()
-                    agora = datetime.now()
-                    data_hora = agora.strftime("%d/%m/%Y %H:%M")
-                    id_recibo = agora.strftime("%y%m%d%H%M%S") 
-                    
-                    pdf.criar_via('VIA CLIENTE', cliente, id_recibo, data_hora, filial_selecionada)
-                    pdf.criar_via('VIA MINASSAL', cliente, id_recibo, data_hora, filial_selecionada)
-                    
-                    nome_arquivo = f"Recibo_{codigo_int}.pdf"
-                    
-                    # Correção aplicada nesta linha (remoção do 'F'):
-                    pdf.output(nome_arquivo)
-                    
-                    assunto = f'Envio de display Royal Canin Mini filhotes para o cliente "{nome_formatado_cliente} e {cliente["CÓDIGO"]} / {cliente["CIDADE"]} / {cliente["UF"]}"'
-                    
-                    if modo_teste:
-                        emails_para = [EMAIL_COPIA]
-                        cc_email = None 
-                    else:
-                        emails_para = EMAILS_FILIAIS[filial_selecionada].copy()
-                        email_cliente = str(cliente.get('E-MAIL', ''))
-                        if email_cliente != 'nan' and email_cliente.strip() != '':
-                            emails_para.append(email_cliente.strip())
-                        cc_email = EMAIL_COPIA
-                    
-                    if "EMAIL_REMETENTE" in st.secrets and "SENHA_REMETENTE" in st.secrets:
+                # VERIFICAÇÃO ANTECIPADA DAS CREDENCIAIS
+                if "EMAIL_REMETENTE" not in st.secrets or "SENHA_REMETENTE" not in st.secrets:
+                    st.error("❌ Credenciais (Secrets) não cadastradas no Streamlit. Por favor, configure o arquivo secrets.toml ou as configurações do Streamlit Cloud.")
+                else:
+                    with st.spinner("Gerando recibo e disparando e-mail..."):
+                        
+                        pdf = ReciboPDF()
+                        pdf.add_page()
+                        agora = datetime.now()
+                        data_hora = agora.strftime("%d/%m/%Y %H:%M")
+                        id_recibo = agora.strftime("%y%m%d%H%M%S") 
+                        
+                        pdf.criar_via('VIA CLIENTE', cliente, id_recibo, data_hora, filial_selecionada)
+                        pdf.criar_via('VIA MINASSAL', cliente, id_recibo, data_hora, filial_selecionada)
+                        
+                        nome_arquivo = f"Recibo_{codigo_int}.pdf"
+                        pdf.output(nome_arquivo)
+                        
+                        assunto = f'Envio de display Royal Canin Mini filhotes para o cliente "{nome_formatado_cliente} e {cliente["CÓDIGO"]} / {cliente["CIDADE"]} / {cliente["UF"]}"'
+                        
+                        if modo_teste:
+                            emails_para = [EMAIL_COPIA]
+                            cc_email = None 
+                        else:
+                            emails_para = EMAILS_FILIAIS[filial_selecionada].copy()
+                            email_cliente = str(cliente.get('E-MAIL', ''))
+                            if email_cliente != 'nan' and email_cliente.strip() != '':
+                                emails_para.append(email_cliente.strip())
+                            cc_email = EMAIL_COPIA
+                        
                         sucesso = enviar_email_gmail(emails_para, cc_email, assunto, nome_formatado_cliente, nome_arquivo)
                         if sucesso:
                             if modo_teste:
                                 st.success(f"✅ MODO TESTE: Recibo gerado e e-mail enviado APENAS para {EMAIL_COPIA}.")
                             else:
                                 st.success(f"✅ Prontinho! Recibo gerado e e-mail com imagem enviado com sucesso para a filial e para: {nome_formatado_cliente}.")
-                    else:
-                        st.error("Credenciais (Secrets) não cadastradas no Streamlit.")
