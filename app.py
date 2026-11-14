@@ -17,17 +17,39 @@ st.markdown("""
     <style>
     .stApp { background-color: #FFFFFF !important; }
     h1, h2, h3, p, label, .stMarkdown * { color: #000000 !important; }
+    
     div[data-baseweb="select"] > div, input, textarea {
         background-color: #FFFFFF !important;
         color: #000000 !important;
         border: 1px solid #CCCCCC !important;
     }
+    
     ul[data-baseweb="menu"] { background-color: #FFFFFF !important; }
     li[data-baseweb="menu-item"], li[data-baseweb="menu-item"] * { color: #000000 !important; }
-    div[data-testid="stAlert"] { background-color: #E8F5E9 !important; border-color: #A5D6A7 !important; }
-    div[data-testid="stAlert"] * { color: #1B5E20 !important; }
+    
+    /* CORREÇÃO DA CAIXA VERDE (SUCESSO) PARA FICAR LEGÍVEL */
+    div[data-testid="stAlert"]:has(div[data-testid="stMarkdownContainer"]:contains("✅")) {
+        background-color: #E8F5E9 !important; /* Fundo verde claro */
+        border-color: #A5D6A7 !important;
+    }
+    div[data-testid="stAlert"]:has(div[data-testid="stMarkdownContainer"]:contains("✅")) * {
+        color: #1B5E20 !important; /* Texto verde escuro forte */
+        font-weight: bold;
+    }
+    
+    /* Caixas de Aviso (Amarelo) */
     div[data-testid="stWarning"] { background-color: #FFF3E0 !important; border-color: #FFCC80 !important; }
     div[data-testid="stWarning"] * { color: #E65100 !important; }
+    
+    /* Caixas de Erro (Vermelho) */
+    div[data-testid="stAlert"]:has(div[data-testid="stMarkdownContainer"]:contains("❌")) { 
+        background-color: #FFEBEE !important; 
+        border-color: #FFCDD2 !important; 
+    }
+    div[data-testid="stAlert"]:has(div[data-testid="stMarkdownContainer"]:contains("❌")) * { 
+        color: #B71C1C !important; 
+    }
+
     div.stButton > button { background-color: #D32F2F !important; border: none !important; font-weight: bold; }
     div.stButton > button * { color: #FFFFFF !important; }
     div.stButton > button:hover { background-color: #B71C1C !important; }
@@ -235,8 +257,6 @@ class ReciboPDF(FPDF):
         self.cell(85, 5, 'LOGISTICA MINASSAL', align='C', ln=0)
         self.cell(20, 5, '', ln=0)
         self.cell(85, 5, 'ASSINATURA CLIENTE', align='C', ln=1)
-        
-        # A linha de corte foi removida para garantir que a página fique limpa.
 
 # --- 3. INTERFACE ---
 st.title("📦 Emissão Rápida - Display")
@@ -293,14 +313,12 @@ if codigo_input:
                         
                         pdf = ReciboPDF()
                         
-                        # Página 1: Via Cliente
                         pdf.add_page()
                         agora = datetime.now()
                         data_hora = agora.strftime("%d/%m/%Y %H:%M")
                         id_recibo = agora.strftime("%y%m%d%H%M%S") 
                         pdf.criar_via('VIA CLIENTE', cliente, id_recibo, data_hora, filial_selecionada)
                         
-                        # Página 2: Via Minassal
                         pdf.add_page()
                         pdf.criar_via('VIA MINASSAL', cliente, id_recibo, data_hora, filial_selecionada)
                         
@@ -335,4 +353,4 @@ if codigo_input:
                             if modo_teste:
                                 st.success("✅ TESTE BEM-SUCEDIDO: Recibo gerado em 2 páginas separadas e e-mail enviado APENAS para os seus e-mails.")
                             else:
-                                st.success(f"✅ Prontinho! Recibo (2 páginas) e e-mail enviados para a filial e para {nome_formatado_cliente}.")
+                                st.success(f"✅ Prontinho! Recibo e e-mail enviados para a filial e para {nome_formatado_cliente}.")
