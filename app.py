@@ -35,32 +35,23 @@ def salvar_dados(dados):
     with open(ARQUIVO_DADOS, "w", encoding="utf-8") as f:
         json.dump(dados, f, ensure_ascii=False, indent=4)
 
-# --- ESTILIZAÇÃO DO TEMA (CORREÇÃO DE CORES DA ABA LATERAL) ---
+# --- ESTILIZAÇÃO DO TEMA ---
 st.markdown("""
     <style>
-    /* Força fundo branco apenas no aplicativo e na sidebar */
     .stApp { background-color: #FFFFFF !important; }
-    [data-testid="stSidebar"] { 
-        background-color: #F8F9FA !important; /* Branco/Cinzento muito claro */
-        border-right: 1px solid #E0E0E0 !important;
-    }
+    h1, h2, h3, p, label, .stMarkdown * { color: #000000 !important; }
     
-    /* Cores de inputs e seletores (mantém contraste) */
     div[data-baseweb="select"] > div, input, textarea {
-        background-color: #FFFFFF !important; 
-        color: #000000 !important; 
-        border: 1px solid #CCCCCC !important;
+        background-color: #FFFFFF !important; color: #000000 !important; border: 1px solid #CCCCCC !important;
     }
     ul[data-baseweb="menu"] { background-color: #FFFFFF !important; }
     li[data-baseweb="menu-item"], li[data-baseweb="menu-item"] * { color: #000000 !important; }
     
-    /* Botão Vermelho */
     div.stButton > button { background-color: #D32F2F !important; border: none !important; font-weight: bold; }
     div.stButton > button * { color: #FFFFFF !important; }
     div.stButton > button:hover { background-color: #B71C1C !important; }
-    
-    /* Ajustes pontuais sem forçar todos os textos a preto para não quebrar a sidebar */
-    div[data-testid="stCheckbox"] span { font-weight: bold; }
+    div[data-testid="stCheckbox"] span { color: #000000 !important; font-weight: bold; }
+    div[role="radiogroup"] label { color: #000000 !important; }
     </style>
 """, unsafe_allow_html=True)
 
@@ -385,7 +376,7 @@ if cliente is not None and codigo_int is not None:
     
     observacao = st.text_input("📝 Observações para a logística (Opcional):")
     email_adicional = st.text_input("📧 E-mail adicional para receber cópia (Opcional):", placeholder="Ex: supervisor@minassal.com.br")
-    modo_teste = st.checkbox("🧪 MODO TESTE (Testa o sistema, envia só para os meus e-mails com aviso de ignorar)", value=False)
+    modo_teste = st.checkbox("🧪 MODO TESTE (Testa o sistema, envia só para os meus e-mails e NÃO ABATE do estoque)", value=False)
     
     if st.button("3. Gerar e Enviar E-mail 🚀"):
         if estoque_filial_atual <= 0 and not modo_teste:
@@ -437,6 +428,7 @@ if cliente is not None and codigo_int is not None:
                 )
                 
                 if sucesso:
+                    # Apenas abate do estoque, grava histórico e avisa se NÃO for modo teste
                     if not modo_teste:
                         dados_app["estoque"][filial_selecionada] -= 1
                         
@@ -453,6 +445,6 @@ if cliente is not None and codigo_int is not None:
                         enviar_aviso_estoque(filial_selecionada, novo_estoque)
                     
                     if modo_teste:
-                        alerta_sucesso("✅ TESTE BEM-SUCEDIDO: E-mail enviado APENAS para os seus e-mails.")
+                        alerta_sucesso("✅ TESTE BEM-SUCEDIDO: E-mail enviado APENAS para os seus e-mails (Estoque preservado).")
                     else:
                         alerta_sucesso(f"✅ Prontinho! Recibo e e-mail enviados para a filial ({filial_selecionada}) e para {nome_formatado_cliente}.")
