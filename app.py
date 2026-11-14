@@ -35,21 +35,32 @@ def salvar_dados(dados):
     with open(ARQUIVO_DADOS, "w", encoding="utf-8") as f:
         json.dump(dados, f, ensure_ascii=False, indent=4)
 
-# --- ESTILIZAÇÃO DO TEMA ---
+# --- ESTILIZAÇÃO DO TEMA (CORREÇÃO DE CORES DA ABA LATERAL) ---
 st.markdown("""
     <style>
+    /* Força fundo branco apenas no aplicativo e na sidebar */
     .stApp { background-color: #FFFFFF !important; }
-    h1, h2, h3, p, label, .stMarkdown * { color: #000000 !important; }
+    [data-testid="stSidebar"] { 
+        background-color: #F8F9FA !important; /* Branco/Cinzento muito claro */
+        border-right: 1px solid #E0E0E0 !important;
+    }
+    
+    /* Cores de inputs e seletores (mantém contraste) */
     div[data-baseweb="select"] > div, input, textarea {
-        background-color: #FFFFFF !important; color: #000000 !important; border: 1px solid #CCCCCC !important;
+        background-color: #FFFFFF !important; 
+        color: #000000 !important; 
+        border: 1px solid #CCCCCC !important;
     }
     ul[data-baseweb="menu"] { background-color: #FFFFFF !important; }
     li[data-baseweb="menu-item"], li[data-baseweb="menu-item"] * { color: #000000 !important; }
+    
+    /* Botão Vermelho */
     div.stButton > button { background-color: #D32F2F !important; border: none !important; font-weight: bold; }
     div.stButton > button * { color: #FFFFFF !important; }
     div.stButton > button:hover { background-color: #B71C1C !important; }
-    div[data-testid="stCheckbox"] span { color: #000000 !important; font-weight: bold; }
-    div[role="radiogroup"] label { color: #000000 !important; }
+    
+    /* Ajustes pontuais sem forçar todos os textos a preto para não quebrar a sidebar */
+    div[data-testid="stCheckbox"] span { font-weight: bold; }
     </style>
 """, unsafe_allow_html=True)
 
@@ -62,7 +73,6 @@ def alerta_aviso(texto):
 
 def alerta_erro(texto):
     st.markdown(f'<div style="background-color: #FFEBEE; padding: 12px; border-radius: 5px; border-left: 5px solid #F44336; color: #B71C1C; font-weight: bold; margin-bottom: 15px;">{texto}</div>', unsafe_allow_html=True)
-
 
 # --- 1. E-MAILS ---
 EMAILS_FILIAIS = {
@@ -294,7 +304,7 @@ with st.sidebar:
         if st.button("Salvar Novos Saldos"):
             dados["estoque"] = novos_saldos
             salvar_dados(dados)
-            st.success("Saldos atualizados no JSON!")
+            st.success("Saldos atualizados!")
             st.rerun()
             
     st.divider()
@@ -370,7 +380,6 @@ if cliente is not None and codigo_int is not None:
 
     filial_selecionada = st.selectbox("2. Selecione a Filial de Faturamento:", opcoes_filial)
     
-    # Carrega dados do JSON para checar o estoque antes do envio
     dados_app = carregar_dados()
     estoque_filial_atual = dados_app["estoque"].get(filial_selecionada, 0)
     
@@ -429,10 +438,8 @@ if cliente is not None and codigo_int is not None:
                 
                 if sucesso:
                     if not modo_teste:
-                        # Abate estoque da filial específica
                         dados_app["estoque"][filial_selecionada] -= 1
                         
-                        # Grava histórico no JSON
                         dados_app["historico"].append({
                             "data_hora": data_hora,
                             "codigo": codigo_int,
@@ -441,7 +448,6 @@ if cliente is not None and codigo_int is not None:
                             "email_adicional": email_adicional.strip() if email_adicional.strip() else "Nenhum"
                         })
                         
-                        # Salva o arquivo JSON e envia o aviso
                         salvar_dados(dados_app)
                         novo_estoque = dados_app["estoque"][filial_selecionada]
                         enviar_aviso_estoque(filial_selecionada, novo_estoque)
