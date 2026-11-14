@@ -23,7 +23,6 @@ EMAIL_COPIA = "benedito.bandola@minassal.com.br"
 
 @st.cache_data
 def carregar_planilha():
-    # Lê o novo arquivo CSV com detecção automática de separador (vírgula ou ponto e vírgula) e codificação correta
     df = pd.read_csv("clientes base atualizado 14112026.csv", sep=None, engine='python', encoding='utf-8-sig')
     df.columns = df.columns.str.strip() 
     return df
@@ -36,7 +35,8 @@ def enviar_email_gmail(destinatarios, cc, assunto, nome_cliente, caminho_pdf):
         msg = MIMEMultipart('related')
         msg['From'] = remetente
         msg['To'] = ", ".join(destinatarios)
-        msg['Cc'] = cc
+        if cc:
+            msg['Cc'] = cc
         msg['Subject'] = assunto
         
         msg_alt = MIMEMultipart('alternative')
@@ -78,7 +78,10 @@ def enviar_email_gmail(destinatarios, cc, assunto, nome_cliente, caminho_pdf):
         part.add_header('Content-Disposition', f'attachment; filename="{os.path.basename(caminho_pdf)}"')
         msg.attach(part)
         
-        todos_destinatarios = destinatarios + [cc]
+        todos_destinatarios = destinatarios.copy()
+        if cc:
+            todos_destinatarios.append(cc)
+            
         server = smtplib.SMTP('smtp.gmail.com', 587)
         server.starttls()
         server.login(remetente, senha)
@@ -165,12 +168,13 @@ except FileNotFoundError:
     st.error("O arquivo 'clientes base atualizado 14112026.csv' não foi encontrado.")
     st.stop()
 
+# 1. Captura do Código
 codigo_input = st.text_input("1. Digite o Código do Cliente (Apenas números):", placeholder="Ex: 17129")
-filial_selecionada = st.selectbox("2. Selecione a Filial:", list(EMAILS_FILIAIS.keys()))
 
-if st.button("3. Gerar e Enviar E-mail 🚀"):
+# Só avança se algo for digitado
+if codigo_input:
     if not codigo_input.isdigit():
-        st.warning("⚠️ Digite um código válido.")
+        st.warning("⚠️ Digite apenas números no código.")
     else:
         codigo_int = int(codigo_input)
         cliente_linha = df_clientes[df_clientes['CÓDIGO'] == codigo_int]
@@ -178,32 +182,58 @@ if st.button("3. Gerar e Enviar E-mail 🚀"):
         if cliente_linha.empty:
             st.error("❌ Cliente não encontrado. Verifique o código.")
         else:
-            with st.spinner("Gerando recibo e disparando e-mail..."):
-                cliente = cliente_linha.iloc[0]
-                nome_formatado_cliente = str(cliente["NOME"]).strip()
-                
-                pdf = ReciboPDF()
-                pdf.add_page()
-                agora = datetime.now()
-                data_hora = agora.strftime("%d/%m/%Y %H:%M")
-                id_recibo = agora.strftime("%y%m%d%H%M%S") 
-                
-                pdf.criar_via('VIA CLIENTE', cliente, id_recibo, data_hora, filial_selecionada)
-                pdf.criar_via('VIA MINASSAL', cliente, id_recibo, data_hora, filial_selecionada)
-                
-                nome_arquivo = f"Recibo_{codigo_int}.pdf"
-                pdf.output(nome_arquivo, 'F')
-                
-                assunto = f'Envio de display Royal Canin Mini filhotes para o cliente "{nome_formatado_cliente} e {cliente["CÓDIGO"]} / {cliente["CIDADE"]} / {cliente["UF"]}"'
-                
-                emails_para = EMAILS_FILIAIS[filial_selecionada].copy()
-                email_cliente = str(cliente.get('E-MAIL', ''))
-                if email_cliente != 'nan' and email_cliente.strip() != '':
-                    emails_para.append(email_cliente.strip())
-                
-                if "EMAIL_REMETENTE" in st.secrets and "SENHA_REMETENTE" in st.secrets:
-                    sucesso = enviar_email_gmail(emails_para, EMAIL_COPIA, assunto, nome_formatado_cliente, nome_arquivo)
-                    if sucesso:
-                        st.success(f"✅ Prontinho! Recibo gerado e e-mail com imagem enviado com sucesso para a filial e para: {nome_formatado_cliente}")
-                else:
-                    st.error("Credenciais (Secrets) não cadastradas no Streamlit.")
+            cliente = cliente_linha.iloc[0]
+            nome_formatado_cliente = str(cliente["NOME"]).strip()
+            
+            # --- TELA DE CONFIRMAÇÃO DO CLIENTE ---
+            st.success("✅ Cliente Encontrado!")
+            with st.container():
+                st.markdown(f"""
+                **Nome:** {nome_formatado_cliente}  
+                **Fantasia:** {cliente.get('NOME FANTASIA', '-')}  
+                **Cidade:** {cliente.get('CIDADE', '-')} / {cliente.get('UF', '-')}  
+                **Endereço:** {cliente.get('ENDEREÇO', '-')}, {cliente.get('BAIRRO', '-')}
+                """)
+            st.divider()
+
+            # 2. Seleção de Filial e Modo Teste (Só aparecem se o cliente estiver correto)
+            filial_selecionada = st.selectbox("2. Selecione a Filial:", list(EMAILS_FILIAIS.keys()))
+            modo_teste = st.checkbox("🧪 Modo Teste (Enviar apenas para mim)", value=False)
+            
+            # 3. Botão de Envio
+            if st.button("3. Gerar e Enviar E-mail 🚀"):
+                with st.spinner("Gerando recibo e disparando e-mail..."):
+                    
+                    pdf = ReciboPDF()
+                    pdf.add_page()
+                    agora = datetime.now()
+                    data_hora = agora.strftime("%d/%m/%Y %H:%M")
+                    id_recibo = agora.strftime("%y%m%d%H%M%S") 
+                    
+                    pdf.criar_via('VIA CLIENTE', cliente, id_recibo, data_hora, filial_selecionada)
+                    pdf.criar_via('VIA MINASSAL', cliente, id_recibo, data_hora, filial_selecionada)
+                    
+                    nome_arquivo = f"Recibo_{codigo_int}.pdf"
+                    pdf.output(nome_arquivo, 'F')
+                    
+                    assunto = f'Envio de display Royal Canin Mini filhotes para o cliente "{nome_formatado_cliente} e {cliente["CÓDIGO"]} / {cliente["CIDADE"]} / {cliente["UF"]}"'
+                    
+                    if modo_teste:
+                        emails_para = [EMAIL_COPIA]
+                        cc_email = None 
+                    else:
+                        emails_para = EMAILS_FILIAIS[filial_selecionada].copy()
+                        email_cliente = str(cliente.get('E-MAIL', ''))
+                        if email_cliente != 'nan' and email_cliente.strip() != '':
+                            emails_para.append(email_cliente.strip())
+                        cc_email = EMAIL_COPIA
+                    
+                    if "EMAIL_REMETENTE" in st.secrets and "SENHA_REMETENTE" in st.secrets:
+                        sucesso = enviar_email_gmail(emails_para, cc_email, assunto, nome_formatado_cliente, nome_arquivo)
+                        if sucesso:
+                            if modo_teste:
+                                st.success(f"✅ MODO TESTE: Recibo gerado e e-mail enviado APENAS para {EMAIL_COPIA}.")
+                            else:
+                                st.success(f"✅ Prontinho! Recibo gerado e e-mail com imagem enviado com sucesso para a filial e para: {nome_formatado_cliente}.")
+                    else:
+                        st.error("Credenciais (Secrets) não cadastradas no Streamlit.")
