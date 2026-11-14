@@ -31,10 +31,13 @@ st.markdown("""
     div.stButton > button * { color: #FFFFFF !important; }
     div.stButton > button:hover { background-color: #B71C1C !important; }
     div[data-testid="stCheckbox"] span { color: #000000 !important; font-weight: bold; }
+    
+    /* Ajuste para botões de rádio (Opções de Busca) */
+    div[role="radiogroup"] label { color: #000000 !important; }
     </style>
 """, unsafe_allow_html=True)
 
-# --- FUNÇÕES DE ALERTA PERSONALIZADAS (BLINDADAS CONTRA MODO ESCURO) ---
+# --- FUNÇÕES DE ALERTA PERSONALIZADAS ---
 def alerta_sucesso(texto):
     st.markdown(f'<div style="background-color: #E8F5E9; padding: 12px; border-radius: 5px; border-left: 5px solid #4CAF50; color: #1B5E20; font-weight: bold; margin-bottom: 15px;">{texto}</div>', unsafe_allow_html=True)
 
@@ -145,7 +148,7 @@ def enviar_email_gmail(destinatarios, cc_list, assunto, nome_cliente, codigo_cli
         alerta_erro(f"❌ Erro ao enviar: {e}")
         return False
 
-# --- 2. GERADOR DO PDF (1 VIA POR PÁGINA) ---
+# --- 2. GERADOR DO PDF ---
 class ReciboPDF(FPDF):
     def criar_via(self, via, cliente, id_recibo, data_hora, filial):
         y_start = self.get_y()
@@ -246,6 +249,7 @@ class ReciboPDF(FPDF):
         self.cell(20, 5, '', ln=0)
         self.cell(85, 5, 'ASSINATURA CLIENTE', align='C', ln=1)
 
+
 # --- 3. INTERFACE ---
 st.title("📦 Emissão Rápida - Display")
 
@@ -261,86 +265,121 @@ except FileNotFoundError:
     alerta_erro("❌ O arquivo de clientes não foi encontrado.")
     st.stop()
 
-codigo_input = st.text_input("1. Digite o Código do Cliente (Apenas números):", placeholder="Ex: 17129")
+# --- NOVO SISTEMA DE BUSCA ---
+cliente = None
+codigo_int = None
 
-if codigo_input:
-    if not codigo_input.isdigit():
-        alerta_aviso("⚠️ Digite apenas números no código.")
-    else:
-        codigo_int = int(codigo_input)
-        cliente_linha = df_clientes[df_clientes['CÓDIGO'] == codigo_int]
-        
-        if cliente_linha.empty:
-            alerta_erro("❌ Cliente não encontrado. Verifique o código.")
+st.subheader("1. Buscar Cliente")
+tipo_busca = st.radio("Como deseja buscar?", ["Por Código", "Por Nome / Fantasia"], horizontal=True)
+
+if tipo_busca == "Por Código":
+    codigo_input = st.text_input("Digite o Código do Cliente (Apenas números):", placeholder="Ex: 17129")
+    if codigo_input:
+        if not codigo_input.isdigit():
+            alerta_aviso("⚠️ Digite apenas números no código.")
         else:
-            cliente = cliente_linha.iloc[0]
-            nome_formatado_cliente = str(cliente["NOME"]).strip()
-            
-            endereco_completo = f"{cliente.get('ENDEREÇO', '-')}, {cliente.get('BAIRRO', '-')} - {cliente.get('CIDADE', '-')} / {cliente.get('UF', '-')}"
-            
-            # Substituído pelo novo alerta de sucesso:
-            alerta_sucesso("✅ Cliente Encontrado!")
-            
-            with st.container():
-                st.markdown(f"""
-                **Código:** {codigo_int}  
-                **Nome:** {nome_formatado_cliente}  
-                **Fantasia:** {cliente.get('NOME FANTASIA', '-')}  
-                **Endereço Completo:** {endereco_completo}
-                """)
-            st.divider()
+            codigo_int = int(codigo_input)
+            cliente_linha = df_clientes[df_clientes['CÓDIGO'] == codigo_int]
+            if cliente_linha.empty:
+                alerta_erro("❌ Cliente não encontrado. Verifique o código.")
+            else:
+                cliente = cliente_linha.iloc[0]
 
-            filial_selecionada = st.selectbox("2. Selecione a Filial:", list(EMAILS_FILIAIS.keys()))
-            observacao = st.text_input("📝 Observações para a logística (Opcional):")
+elif tipo_busca == "Por Nome / Fantasia":
+    nome_input = st.text_input("Digite parte do Nome ou Fantasia:", placeholder="Ex: PET MANIA")
+    if nome_input:
+        # Filtra na planilha ignorando maiúsculas/minúsculas
+        mask = df_clientes['NOME'].astype(str).str.contains(nome_input, case=False, na=False) | \
+               df_clientes['NOME FANTASIA'].astype(str).str.contains(nome_input, case=False, na=False)
+        resultados = df_clientes[mask]
+        
+        if resultados.empty:
+            alerta_erro("❌ Nenhum cliente encontrado com esse nome.")
+        else:
+            # Cria lista legível para o dropdown
+            opcoes = ["-- Selecione o cliente na lista --"] + resultados.apply(lambda row: f"{row['CÓDIGO']} - {row['NOME']} ({row['CIDADE']}/{row['UF']})", axis=1).tolist()
+            cliente_selecionado = st.selectbox("Selecione o cliente correto:", opcoes)
             
-            modo_teste = st.checkbox("🧪 MODO TESTE (Apenas testa o sistema, envia só para mim com aviso de ignorar)", value=False)
-            
-            if st.button("3. Gerar e Enviar E-mail 🚀"):
-                if "EMAIL_REMETENTE" not in st.secrets or "SENHA_REMETENTE" not in st.secrets:
-                    alerta_erro("❌ Credenciais (Secrets) não cadastradas.")
+            if cliente_selecionado != "-- Selecione o cliente na lista --":
+                codigo_int = int(cliente_selecionado.split(" - ")[0])
+                cliente = df_clientes[df_clientes['CÓDIGO'] == codigo_int].iloc[0]
+
+# --- PROCESSAMENTO APÓS ENCONTRAR O CLIENTE ---
+if cliente is not None and codigo_int is not None:
+    nome_formatado_cliente = str(cliente["NOME"]).strip()
+    endereco_completo = f"{cliente.get('ENDEREÇO', '-')}, {cliente.get('BAIRRO', '-')} - {cliente.get('CIDADE', '-')} / {cliente.get('UF', '-')}"
+    uf_cliente = str(cliente.get('UF', '')).strip().upper()
+    
+    alerta_sucesso("✅ Cliente Encontrado!")
+    with st.container():
+        st.markdown(f"""
+        **Código:** {codigo_int}  
+        **Nome:** {nome_formatado_cliente}  
+        **Fantasia:** {cliente.get('NOME FANTASIA', '-')}  
+        **UF:** {uf_cliente}  
+        **Endereço Completo:** {endereco_completo}
+        """)
+    st.divider()
+
+    # --- NOVO SISTEMA DE FILTRO DE FILIAL POR ESTADO (UF) ---
+    if uf_cliente == 'MG':
+        opcoes_filial = ["Juiz de Fora", "Poços de Caldas"]
+    elif uf_cliente == 'SP':
+        opcoes_filial = ["São João da Boa Vista", "São José do Rio Preto"]
+    else:
+        opcoes_filial = list(EMAILS_FILIAIS.keys()) # Mostra todas caso seja de outro estado
+
+    filial_selecionada = st.selectbox("2. Selecione a Filial de Faturamento:", opcoes_filial)
+    
+    observacao = st.text_input("📝 Observações para a logística (Opcional):", placeholder="Ex: Entregar apenas no período da tarde")
+    modo_teste = st.checkbox("🧪 MODO TESTE (Apenas testa o sistema, envia só para mim com aviso de ignorar)", value=False)
+    
+    if st.button("3. Gerar e Enviar E-mail 🚀"):
+        if "EMAIL_REMETENTE" not in st.secrets or "SENHA_REMETENTE" not in st.secrets:
+            alerta_erro("❌ Credenciais (Secrets) não cadastradas no Streamlit.")
+        else:
+            with st.spinner("Gerando recibo e disparando e-mail..."):
+                
+                pdf = ReciboPDF()
+                
+                pdf.add_page()
+                agora = datetime.now()
+                data_hora = agora.strftime("%d/%m/%Y %H:%M")
+                id_recibo = agora.strftime("%y%m%d%H%M%S") 
+                pdf.criar_via('VIA CLIENTE', cliente, id_recibo, data_hora, filial_selecionada)
+                
+                pdf.add_page()
+                pdf.criar_via('VIA MINASSAL', cliente, id_recibo, data_hora, filial_selecionada)
+                
+                nome_arquivo = f"Recibo_{codigo_int}.pdf"
+                pdf.output(nome_arquivo)
+                
+                assunto = f'Envio de display Royal Canin Mini filhotes para o cliente "{nome_formatado_cliente} - {endereco_completo}"'
+                
+                if modo_teste:
+                    emails_para = MEUS_EMAILS.copy()
+                    cc_email = [] 
                 else:
-                    with st.spinner("Gerando recibo e disparando e-mail..."):
-                        
-                        pdf = ReciboPDF()
-                        
-                        pdf.add_page()
-                        agora = datetime.now()
-                        data_hora = agora.strftime("%d/%m/%Y %H:%M")
-                        id_recibo = agora.strftime("%y%m%d%H%M%S") 
-                        pdf.criar_via('VIA CLIENTE', cliente, id_recibo, data_hora, filial_selecionada)
-                        
-                        pdf.add_page()
-                        pdf.criar_via('VIA MINASSAL', cliente, id_recibo, data_hora, filial_selecionada)
-                        
-                        nome_arquivo = f"Recibo_{codigo_int}.pdf"
-                        pdf.output(nome_arquivo)
-                        
-                        assunto = f'Envio de display Royal Canin Mini filhotes para o cliente "{nome_formatado_cliente} - {endereco_completo}"'
-                        
-                        if modo_teste:
-                            emails_para = MEUS_EMAILS.copy()
-                            cc_email = [] 
-                        else:
-                            emails_para = EMAILS_FILIAIS[filial_selecionada].copy()
-                            email_cliente = str(cliente.get('E-MAIL', ''))
-                            if email_cliente != 'nan' and email_cliente.strip() != '':
-                                emails_para.append(email_cliente.strip())
-                            cc_email = MEUS_EMAILS.copy()
-                        
-                        sucesso = enviar_email_gmail(
-                            destinatarios=emails_para, 
-                            cc_list=cc_email, 
-                            assunto=assunto, 
-                            nome_cliente=nome_formatado_cliente,
-                            codigo_cliente=codigo_int,
-                            endereco_completo=endereco_completo,
-                            caminho_pdf=nome_arquivo, 
-                            observacao=observacao, 
-                            is_test=modo_teste
-                        )
-                        
-                        if sucesso:
-                            if modo_teste:
-                                alerta_sucesso("✅ TESTE BEM-SUCEDIDO: Recibo gerado em 2 páginas separadas e e-mail enviado APENAS para os seus e-mails.")
-                            else:
-                                alerta_sucesso(f"✅ Prontinho! Recibo e e-mail enviados para a filial e para {nome_formatado_cliente}.")
+                    emails_para = EMAILS_FILIAIS[filial_selecionada].copy()
+                    email_cliente = str(cliente.get('E-MAIL', ''))
+                    if email_cliente != 'nan' and email_cliente.strip() != '':
+                        emails_para.append(email_cliente.strip())
+                    cc_email = MEUS_EMAILS.copy()
+                
+                sucesso = enviar_email_gmail(
+                    destinatarios=emails_para, 
+                    cc_list=cc_email, 
+                    assunto=assunto, 
+                    nome_cliente=nome_formatado_cliente,
+                    codigo_cliente=codigo_int,
+                    endereco_completo=endereco_completo,
+                    caminho_pdf=nome_arquivo, 
+                    observacao=observacao, 
+                    is_test=modo_teste
+                )
+                
+                if sucesso:
+                    if modo_teste:
+                        alerta_sucesso("✅ TESTE BEM-SUCEDIDO: Recibo gerado em 2 páginas e e-mail enviado APENAS para os seus e-mails.")
+                    else:
+                        alerta_sucesso(f"✅ Prontinho! Recibo e e-mail enviados para a filial ({filial_selecionada}) e para {nome_formatado_cliente}.")
