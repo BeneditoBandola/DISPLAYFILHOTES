@@ -12,47 +12,69 @@ from email import encoders
 
 st.set_page_config(page_title="Emissão Rápida", layout="centered")
 
-# --- ESTILIZAÇÃO DO TEMA (Branco, Preto e Vermelho) ---
+# --- ESTILIZAÇÃO DO TEMA (Correção do Preto no Preto) ---
 st.markdown("""
     <style>
-    /* Fundo branco e texto preto geral */
+    /* Fundo geral branco */
     .stApp {
-        background-color: #FFFFFF;
-        color: #000000;
+        background-color: #FFFFFF !important;
     }
     
-    /* Cor dos textos e títulos */
-    h1, h2, h3, p, span, label {
+    /* Forçar todos os textos normais para preto */
+    h1, h2, h3, p, label, .stMarkdown * {
         color: #000000 !important;
     }
     
-    /* Estilização do Botão Principal (Vermelho) */
-    div.stButton > button:first-child {
-        background-color: #D32F2F !important;
-        color: #FFFFFF !important;
-        border: none !important;
-        font-weight: bold;
-    }
-    div.stButton > button:first-child:hover {
-        background-color: #B71C1C !important;
-        color: #FFFFFF !important;
-    }
-    
-    /* Caixas de input e select */
-    .stTextInput input, .stSelectbox div[data-baseweb="select"] > div {
-        background-color: #F5F5F5 !important;
+    /* Correção do Selectbox (Dropdown) e Inputs */
+    div[data-baseweb="select"] > div, 
+    input {
+        background-color: #FFFFFF !important;
         color: #000000 !important;
         border: 1px solid #CCCCCC !important;
     }
     
-    /* Cor de sucesso e aviso adaptadas para ficar legíveis no fundo claro */
-    div[data-testid="stSuccess"] {
+    /* Correção da listagem do Dropdown (quando clica para abrir) */
+    ul[data-baseweb="menu"] {
+        background-color: #FFFFFF !important;
+    }
+    li[data-baseweb="menu-item"], li[data-baseweb="menu-item"] * {
+        color: #000000 !important;
+    }
+    
+    /* Correção da caixa de Sucesso (Verde clarinho com texto verde escuro) */
+    div[data-testid="stAlert"] {
         background-color: #E8F5E9 !important;
+        border-color: #A5D6A7 !important;
+    }
+    div[data-testid="stAlert"] * {
         color: #1B5E20 !important;
     }
+
+    /* Correção da caixa de Aviso (Amarelo claro) */
     div[data-testid="stWarning"] {
         background-color: #FFF3E0 !important;
+        border-color: #FFCC80 !important;
+    }
+    div[data-testid="stWarning"] * {
         color: #E65100 !important;
+    }
+
+    /* Estilização do Botão Principal (Vermelho com texto branco) */
+    div.stButton > button {
+        background-color: #D32F2F !important;
+        border: none !important;
+        font-weight: bold;
+    }
+    div.stButton > button * {
+        color: #FFFFFF !important; /* Garante o texto branco no botão vermelho */
+    }
+    div.stButton > button:hover {
+        background-color: #B71C1C !important;
+    }
+    
+    /* Correção do Checkbox */
+    div[data-testid="stCheckbox"] span {
+        color: #000000 !important;
     }
     </style>
 """, unsafe_allow_html=True)
@@ -249,7 +271,7 @@ if codigo_input:
             if st.button("3. Gerar e Enviar E-mail 🚀"):
                 # VERIFICAÇÃO ANTECIPADA DAS CREDENCIAIS
                 if "EMAIL_REMETENTE" not in st.secrets or "SENHA_REMETENTE" not in st.secrets:
-                    st.error("❌ Credenciais (Secrets) não cadastradas no Streamlit. Por favor, configure o arquivo secrets.toml ou as configurações do Streamlit Cloud.")
+                    st.error("❌ Credenciais (Secrets) não cadastradas no Streamlit. Por favor, configure os secrets.")
                 else:
                     with st.spinner("Gerando recibo e disparando e-mail..."):
                         
