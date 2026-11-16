@@ -21,8 +21,8 @@ def inicializar_banco():
     if not os.path.exists(ARQUIVO_DADOS):
         dados_iniciais = {
             "estoque": {
-                "São João da Boa Vista": 0,
-                "São José do Rio Preto": 0,
+                "São João da Boa Vista": 43,
+                "São José do Rio Preto": 9,
                 "Poços de Caldas": 16,
                 "Juiz de Fora": 9
             },
@@ -43,41 +43,23 @@ def salvar_dados(dados):
 # --- ESTILIZAÇÃO DO TEMA (COM CORES FORTES NA ABA LATERAL) ---
 st.markdown("""
     <style>
-    /* Fundo da página principal branco */
     .stApp { background-color: #FFFFFF !important; }
-    
-    /* Textos principais da página principal em preto */
     .stApp h1, .stApp h2, .stApp h3, .stApp p, .stApp label { color: #000000 !important; }
     
-    /* ESTILIZAÇÃO FORTE DA ABA LATERAL (SIDEBAR) PARA CONTRASTE PERFEITO */
-    [data-testid="stSidebar"] {
-        background-color: #1E1E1E !important; /* Fundo escuro sólido */
-    }
+    [data-testid="stSidebar"] { background-color: #1E1E1E !important; }
+    [data-testid="stSidebar"] h1, [data-testid="stSidebar"] h2, 
+    [data-testid="stSidebar"] h3, [data-testid="stSidebar"] p, 
+    [data-testid="stSidebar"] span, [data-testid="stSidebar"] label,
+    [data-testid="stSidebar"] div { color: #FFFFFF !important; }
     
-    /* Todos os textos, títulos e labels dentro da barra lateral ficam BRANCOS */
-    [data-testid="stSidebar"] h1, 
-    [data-testid="stSidebar"] h2, 
-    [data-testid="stSidebar"] h3, 
-    [data-testid="stSidebar"] p, 
-    [data-testid="stSidebar"] span, 
-    [data-testid="stSidebar"] label,
-    [data-testid="stSidebar"] div {
-        color: #FFFFFF !important;
-    }
+    [data-testid="stSidebar"] strong { color: #FFEB3B !important; }
     
-    /* Valores de estoque na lateral em AMARELO BRILHANTE para destaque */
-    [data-testid="stSidebar"] strong {
-        color: #FFEB3B !important;
-    }
-    
-    /* Campos de entrada e menus */
     div[data-baseweb="select"] > div, input, textarea {
         background-color: #FFFFFF !important; color: #000000 !important; border: 1px solid #CCCCCC !important;
     }
     ul[data-baseweb="menu"] { background-color: #FFFFFF !important; }
     li[data-baseweb="menu-item"], li[data-baseweb="menu-item"] * { color: #000000 !important; }
     
-    /* Botões Vermelhos */
     div.stButton > button { background-color: #D32F2F !important; border: none !important; font-weight: bold; }
     div.stButton > button * { color: #FFFFFF !important; }
     div.stButton > button:hover { background-color: #B71C1C !important; }
@@ -145,8 +127,8 @@ def enviar_aviso_estoque(filial, estoque_atual):
         server.login(remetente, senha)
         server.sendmail(remetente, MEUS_EMAILS, msg.as_string())
         server.quit()
-    except:
-        pass 
+    except Exception as e:
+        print(f"Erro ao enviar aviso de estoque: {e}")
 
 def enviar_email_gmail(destinatarios, cc_list, assunto, nome_cliente, codigo_cliente, endereco_completo, caminho_pdf, observacao="", is_test=False):
     try:
@@ -307,8 +289,7 @@ class ReciboPDF(FPDF):
         self.cell(20, 5, '', ln=0)
         self.cell(85, 5, 'ASSINATURA CLIENTE', align='C', ln=1)
 
-
-# --- MENU LATERAL (ADMINISTRAÇÃO COM CORES FORTES E LEGÍVEIS) ---
+# --- MENU LATERAL (ADMINISTRAÇÃO) ---
 with st.sidebar:
     st.header("⚙️ Gestão de Envios")
     dados = carregar_dados()
@@ -316,13 +297,16 @@ with st.sidebar:
     st.subheader("📦 Estoque por Filial")
     for fil in FILIAIS_LISTA:
         saldo = dados["estoque"].get(fil, 0)
-        st.markdown(f"<p style='color: #FFFFFF; font-size: 15px;'><b>{fil}:</b> <span style='color: #FFEB3B; font-size: 18px;'>{saldo}</span> unidades</p>", unsafe_allow_html=True)
+        # Se for negativo, mostra em vermelho claro para chamar a atenção
+        cor_saldo = "#FFEB3B" if saldo >= 0 else "#FF8A80"
+        st.markdown(f"<p style='color: #FFFFFF; font-size: 15px;'><b>{fil}:</b> <span style='color: {cor_saldo}; font-size: 18px;'>{saldo}</span> unidades</p>", unsafe_allow_html=True)
         
-    with st.expander("Atualizar Saldo de Displays"):
+    with st.expander("Atualizar Saldo Manualmente"):
         novos_saldos = {}
         for fil in FILIAIS_LISTA:
             saldo_atual = dados["estoque"].get(fil, 0)
-            novos_saldos[fil] = st.number_input(f"Saldo de {fil}:", min_value=0, value=saldo_atual, step=1)
+            # REMOVIDO o min_value=0 para permitir números negativos sem travar
+            novos_saldos[fil] = st.number_input(f"Saldo de {fil}:", value=saldo_atual, step=1)
             
         if st.button("Salvar Novos Saldos"):
             dados["estoque"] = novos_saldos
@@ -331,7 +315,7 @@ with st.sidebar:
             st.rerun()
             
     st.divider()
-    st.subheader("📜 Histórico (JSON)")
+    st.subheader("📜 Histórico")
     if dados["historico"]:
         df_historico = pd.DataFrame(dados["historico"])
         st.dataframe(df_historico, use_container_width=True)
@@ -343,14 +327,14 @@ with st.sidebar:
 st.title("📦 Emissão Rápida - Display")
 
 if not os.path.exists("logo.png") and not os.path.exists("logo.jpg"):
-    alerta_aviso("⚠️ O logotipo não foi encontrado no sistema.")
+    alerta_aviso("⚠️ O logotipo não foi encontrado no sistema (logo.png ou logo.jpg).")
 if not os.path.exists("display.png") and not os.path.exists("display.jpg"):
-    alerta_aviso("⚠️ Imagem do display não encontrada.")
+    alerta_aviso("⚠️ Imagem do display não encontrada (display.png ou display.jpg).")
 
 try:
     df_clientes = carregar_planilha()
 except FileNotFoundError:
-    alerta_erro("❌ O arquivo de clientes não foi encontrado.")
+    alerta_erro("❌ O arquivo de clientes não foi encontrado. Verifique o nome do arquivo CSV.")
     st.stop()
 
 # --- SISTEMA DE BUSCA ---
@@ -412,13 +396,14 @@ if cliente is not None and codigo_int is not None:
     
     if st.button("3. Gerar e Enviar E-mail 🚀"):
         if estoque_filial_atual <= 0 and not modo_teste:
-            st.warning(f"⚠️ Atenção: O estoque da filial {filial_selecionada} consta como zero. Atualize no menu lateral antes de emitir novos, ou o estoque ficará negativo.")
+            st.warning(f"⚠️ Atenção: O estoque da filial {filial_selecionada} está em {estoque_filial_atual}. O e-mail será enviado normalmente, mas lembre-se de ajustar o saldo depois.")
             
         if "EMAIL_REMETENTE" not in st.secrets or "SENHA_REMETENTE" not in st.secrets:
             alerta_erro("❌ Credenciais (Secrets) não cadastradas no Streamlit.")
         else:
             with st.spinner("Gerando recibo e disparando e-mail..."):
                 
+                # Gerar o PDF
                 pdf = ReciboPDF()
                 pdf.add_page()
                 agora = datetime.now()
@@ -432,6 +417,7 @@ if cliente is not None and codigo_int is not None:
                 nome_arquivo = f"Recibo_{codigo_int}.pdf"
                 pdf.output(nome_arquivo)
                 
+                # Configurar E-mail
                 assunto = f'Envio de display Royal Canin Mini filhotes para o cliente "{nome_formatado_cliente} - {endereco_completo}"'
                 
                 if modo_teste:
@@ -447,6 +433,7 @@ if cliente is not None and codigo_int is not None:
                     cc_email = MEUS_EMAILS.copy()
                     if email_adicional.strip(): cc_email.append(email_adicional.strip())
                 
+                # Enviar E-mail
                 sucesso = enviar_email_gmail(
                     destinatarios=emails_para, 
                     cc_list=cc_email, 
@@ -460,10 +447,8 @@ if cliente is not None and codigo_int is not None:
                 )
                 
                 if sucesso:
-                    # Se for modo teste, NÃO abate do estoque e NÃO regista no histórico definitivo
                     if not modo_teste:
                         dados_app["estoque"][filial_selecionada] -= 1
-                        
                         dados_app["historico"].append({
                             "data_hora": data_hora,
                             "codigo": codigo_int,
@@ -471,12 +456,25 @@ if cliente is not None and codigo_int is not None:
                             "filial": filial_selecionada,
                             "email_adicional": email_adicional.strip() if email_adicional.strip() else "Nenhum"
                         })
-                        
                         salvar_dados(dados_app)
                         novo_estoque = dados_app["estoque"][filial_selecionada]
                         enviar_aviso_estoque(filial_selecionada, novo_estoque)
-                    
-                    if modo_teste:
-                        alerta_sucesso("✅ TESTE BEM-SUCEDIDO: E-mail enviado APENAS para os seus e-mails (Estoque preservado).")
-                    else:
                         alerta_sucesso(f"✅ Prontinho! Recibo e e-mail enviados para a filial ({filial_selecionada}) e para {nome_formatado_cliente}.")
+                    else:
+                        alerta_sucesso("✅ TESTE BEM-SUCEDIDO: E-mail enviado APENAS para os seus e-mails (Estoque preservado).")
+
+                    # Ler o PDF gerado para disponibilizar para download antes de excluí-lo
+                    with open(nome_arquivo, "rb") as pdf_file:
+                        pdf_bytes = pdf_file.read()
+                        
+                    # Excluir o arquivo físico para não lotar o servidor
+                    if os.path.exists(nome_arquivo):
+                        os.remove(nome_arquivo)
+
+                    # Botão de download (usa o arquivo lido na memória)
+                    st.download_button(
+                        label="📥 Baixar Cópia do Recibo em PDF",
+                        data=pdf_bytes,
+                        file_name=nome_arquivo,
+                        mime="application/pdf"
+                    )
