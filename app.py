@@ -20,7 +20,12 @@ FILIAIS_LISTA = ["São João da Boa Vista", "São José do Rio Preto", "Poços d
 def inicializar_banco():
     if not os.path.exists(ARQUIVO_DADOS):
         dados_iniciais = {
-            "estoque": {f: 0 for f in FILIAIS_LISTA},
+            "estoque": {
+                "São João da Boa Vista": 0,
+                "São José do Rio Preto": 0,
+                "Poços de Caldas": 16,
+                "Juiz de Fora": 9
+            },
             "historico": []
         }
         with open(ARQUIVO_DADOS, "w", encoding="utf-8") as f:
