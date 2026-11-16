@@ -130,7 +130,7 @@ def enviar_aviso_estoque(filial, estoque_atual):
     except Exception as e:
         print(f"Erro ao enviar aviso de estoque: {e}")
 
-def enviar_email_gmail(destinatarios, cc_list, assunto, nome_cliente, codigo_cliente, endereco_completo, caminho_pdf, observacao="", is_test=False):
+def enviar_email_gmail(destinatarios, cc_list, assunto, nome_cliente, codigo_cliente, endereco_completo, caminho_pdf, tipo_display, observacao="", is_test=False):
     try:
         remetente = st.secrets["EMAIL_REMETENTE"]
         senha = st.secrets["SENHA_REMETENTE"]
@@ -161,7 +161,7 @@ def enviar_email_gmail(destinatarios, cc_list, assunto, nome_cliente, codigo_cli
             Por favor, quando possível, vai ter um pedido para este cliente:<br>
             <b>{codigo_cliente} - {nome_cliente}</b><br>
             <b>Endereço de Entrega:</b> {endereco_completo}<br><br>
-            Poderia enviar o <b>display filhotes</b> com a carga por favor?<br><br>
+            Poderia enviar o <b>{tipo_display}</b> com a carga por favor?<br><br>
         """
         if observacao.strip():
             html += f"<p style='color: #D32F2F; font-weight: bold; border-left: 4px solid #D32F2F; padding-left: 10px;'>⚠️ Observação: {observacao}</p><br>"
@@ -205,7 +205,7 @@ def enviar_email_gmail(destinatarios, cc_list, assunto, nome_cliente, codigo_cli
 
 # --- 2. GERADOR DO PDF ---
 class ReciboPDF(FPDF):
-    def criar_via(self, via, cliente, id_recibo, data_hora, filial):
+    def criar_via(self, via, cliente, id_recibo, data_hora, filial, tipo_display):
         y_start = self.get_y()
         caminho_logo = "logo.png" if os.path.exists("logo.png") else ("logo.jpg" if os.path.exists("logo.jpg") else None)
         if caminho_logo: self.image(caminho_logo, x=10, y=y_start, w=35)
@@ -273,7 +273,7 @@ class ReciboPDF(FPDF):
         
         self.set_x(10)
         self.set_font('Arial', 'B', 10)
-        self.cell(160, 10, ' DISPLAY MINI CLIENTES - FILHOTES', border=1)
+        self.cell(160, 10, f' {tipo_display.upper()}', border=1)
         self.cell(30, 10, '1', border=1, ln=1, align='C')
         
         self.ln(25)
@@ -387,6 +387,9 @@ if cliente is not None and codigo_int is not None:
 
     filial_selecionada = st.selectbox("2. Selecione a Filial de Faturamento:", opcoes_filial)
     
+    # Nova caixa de seleção de Display adicionada aqui:
+    tipo_display = st.selectbox("3. Selecione o tipo de Display:", ["Display Mini Clientes - Filhotes", "Display Slim Wet"])
+    
     dados_app = carregar_dados()
     estoque_filial_atual = dados_app["estoque"].get(filial_selecionada, 0)
     
@@ -394,7 +397,7 @@ if cliente is not None and codigo_int is not None:
     email_adicional = st.text_input("📧 E-mail adicional para receber cópia (Opcional):", placeholder="Ex: supervisor@minassal.com.br")
     modo_teste = st.checkbox("🧪 MODO TESTE (Testa o sistema, envia só para os meus e-mails e NÃO ABATE do estoque)", value=False)
     
-    if st.button("3. Gerar e Enviar E-mail 🚀"):
+    if st.button("4. Gerar e Enviar E-mail 🚀"):
         if estoque_filial_atual <= 0 and not modo_teste:
             st.warning(f"⚠️ Atenção: O estoque da filial {filial_selecionada} está em {estoque_filial_atual}. O e-mail será enviado normalmente, mas lembre-se de ajustar o saldo depois.")
             
@@ -409,16 +412,16 @@ if cliente is not None and codigo_int is not None:
                 agora = datetime.now()
                 data_hora = agora.strftime("%d/%m/%Y %H:%M")
                 id_recibo = agora.strftime("%y%m%d%H%M%S") 
-                pdf.criar_via('VIA CLIENTE', cliente, id_recibo, data_hora, filial_selecionada)
+                pdf.criar_via('VIA CLIENTE', cliente, id_recibo, data_hora, filial_selecionada, tipo_display)
                 
                 pdf.add_page()
-                pdf.criar_via('VIA MINASSAL', cliente, id_recibo, data_hora, filial_selecionada)
+                pdf.criar_via('VIA MINASSAL', cliente, id_recibo, data_hora, filial_selecionada, tipo_display)
                 
                 nome_arquivo = f"Recibo_{codigo_int}.pdf"
                 pdf.output(nome_arquivo)
                 
                 # Configurar E-mail
-                assunto = f'Envio de display Royal Canin Mini filhotes para o cliente "{nome_formatado_cliente} - {endereco_completo}"'
+                assunto = f'Envio de {tipo_display} para o cliente "{nome_formatado_cliente} - {endereco_completo}"'
                 
                 if modo_teste:
                     emails_para = MEUS_EMAILS.copy()
@@ -442,6 +445,7 @@ if cliente is not None and codigo_int is not None:
                     codigo_cliente=codigo_int,
                     endereco_completo=endereco_completo,
                     caminho_pdf=nome_arquivo, 
+                    tipo_display=tipo_display,
                     observacao=observacao, 
                     is_test=modo_teste
                 )
