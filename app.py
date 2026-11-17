@@ -294,7 +294,6 @@ if tipo_busca == "Por Código":
 elif tipo_busca == "Por Nome / Fantasia":
     nome_input = st.text_input("Digite parte do Nome ou Fantasia:", placeholder="Ex: PET MANIA")
     if nome_input:
-        # Filtra na planilha ignorando maiúsculas/minúsculas
         mask = df_clientes['NOME'].astype(str).str.contains(nome_input, case=False, na=False) | \
                df_clientes['NOME FANTASIA'].astype(str).str.contains(nome_input, case=False, na=False)
         resultados = df_clientes[mask]
@@ -302,7 +301,6 @@ elif tipo_busca == "Por Nome / Fantasia":
         if resultados.empty:
             alerta_erro("❌ Nenhum cliente encontrado com esse nome.")
         else:
-            # Cria lista legível para o dropdown
             opcoes = ["-- Selecione o cliente na lista --"] + resultados.apply(lambda row: f"{row['CÓDIGO']} - {row['NOME']} ({row['CIDADE']}/{row['UF']})", axis=1).tolist()
             cliente_selecionado = st.selectbox("Selecione o cliente correto:", opcoes)
             
@@ -345,9 +343,31 @@ if cliente is not None and codigo_int is not None:
     filial_selecionada = st.selectbox("Selecione a Filial de Faturamento:", opcoes_filial)
     
     observacao = st.text_input("📝 Observações para a logística (Opcional):", placeholder="Ex: Entregar apenas no período da tarde")
-    modo_teste = st.checkbox("🧪 MODO TESTE (Apenas testa o sistema, envia só para mim com aviso de ignorar)", value=False)
     
-    if st.button("3. Gerar e Enviar E-mail 🚀"):
+    # --- NOVAS OPÇÕES DE MODO DE ENVIO ---
+    modo_envio = st.radio("Selecione o Modo de Envio:", [
+        "🚀 Envio Real (Valendo)",
+        "📢 Teste para a Filial (Para a filial - com aviso de IGNORAR)",
+        "🔒 Teste Fechado (Só para mim - com aviso)"
+    ])
+    
+    # --- LÓGICA DE DESTINATÁRIOS (DINÂMICA) ---
+    emails_filial_base = EMAILS_FILIAIS[filial_selecionada].copy()
+    cc_base = MEUS_EMAILS.copy()
+    if filial_selecionada == "Poços de Caldas":
+        cc_base.append("financeiro@minassal.com.br")
+        
+    if modo_envio == "🔒 Teste Fechado (Só para mim - com aviso)":
+        display_to = MEUS_EMAILS.copy()
+        display_cc = []
+    else:
+        display_to = emails_filial_base
+        display_cc = cc_base
+        
+    # --- MOSTRADOR DE DESTINATÁRIOS NA TELA ---
+    st.info(f"**Destinatários Principais (Para):**\n\n{', '.join(display_to)}\n\n**Em Cópia (CC):**\n\n{', '.join(display_cc) if display_cc else 'Nenhuma'}")
+    
+    if st.button("3. Gerar e Enviar E-mail"):
         if "EMAIL_REMETENTE" not in st.secrets or "SENHA_REMETENTE" not in st.secrets:
             alerta_erro("❌ Credenciais (Secrets) não cadastradas no Streamlit.")
         else:
@@ -369,22 +389,11 @@ if cliente is not None and codigo_int is not None:
                 
                 assunto = f'Envio de {tipo_display_selecionado.lower()} para o cliente "{nome_formatado_cliente} - {endereco_completo}"'
                 
-                if modo_teste:
-                    emails_para = MEUS_EMAILS.copy()
-                    cc_email = [] 
-                else:
-                    emails_para = EMAILS_FILIAIS[filial_selecionada].copy()
-                    
-                    # CÓPIA (CC) PADRÃO PARA VOCÊ
-                    cc_email = MEUS_EMAILS.copy()
-                    
-                    # NOVA REGRA: FINANCEIRO EM CÓPIA QUANDO FOR POÇOS DE CALDAS
-                    if filial_selecionada == "Poços de Caldas":
-                        cc_email.append("financeiro@minassal.com.br")
+                is_test = modo_envio != "🚀 Envio Real (Valendo)"
                 
                 sucesso = enviar_email_gmail(
-                    destinatarios=emails_para, 
-                    cc_list=cc_email, 
+                    destinatarios=display_to, 
+                    cc_list=display_cc, 
                     assunto=assunto, 
                     nome_cliente=nome_formatado_cliente,
                     codigo_cliente=codigo_int,
@@ -392,11 +401,13 @@ if cliente is not None and codigo_int is not None:
                     caminho_pdf=nome_arquivo, 
                     tipo_display=tipo_display_selecionado,
                     observacao=observacao, 
-                    is_test=modo_teste
+                    is_test=is_test
                 )
                 
                 if sucesso:
-                    if modo_teste:
-                        alerta_sucesso("✅ TESTE BEM-SUCEDIDO: Recibo gerado em 2 páginas e e-mail enviado APENAS para os seus e-mails.")
+                    if modo_envio == "🔒 Teste Fechado (Só para mim - com aviso)":
+                        alerta_sucesso("✅ TESTE FECHADO: Recibo gerado e e-mail enviado APENAS para os seus e-mails.")
+                    elif modo_envio == "📢 Teste para a Filial (Para a filial - com aviso de IGNORAR)":
+                        alerta_sucesso(f"✅ TESTE PARA A FILIAL: E-mail enviado para ({filial_selecionada}) com o AVISO DE TESTE no assunto e corpo.")
                     else:
-                        alerta_sucesso(f"✅ Prontinho! Recibo e e-mail enviados para a filial ({filial_selecionada}).")
+                        alerta_sucesso(f"✅ ENVIO REAL CONCLUÍDO! Recibo e e-mail enviados valendo para a filial ({filial_selecionada}).")
