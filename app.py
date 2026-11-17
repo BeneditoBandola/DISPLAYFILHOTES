@@ -67,7 +67,7 @@ def carregar_planilha():
     df.columns = df.columns.str.strip() 
     return df
 
-def enviar_email_gmail(destinatarios, cc_list, assunto, nome_cliente, codigo_cliente, endereco_completo, caminho_pdf, observacao="", is_test=False):
+def enviar_email_gmail(destinatarios, cc_list, assunto, nome_cliente, codigo_cliente, endereco_completo, caminho_pdf, tipo_display, observacao="", is_test=False):
     try:
         remetente = st.secrets["EMAIL_REMETENTE"]
         senha = st.secrets["SENHA_REMETENTE"]
@@ -105,7 +105,7 @@ def enviar_email_gmail(destinatarios, cc_list, assunto, nome_cliente, codigo_cli
               Por favor, quando possível, vai ter um pedido para este cliente:<br>
               <b>{codigo_cliente} - {nome_cliente}</b><br>
               <b>Endereço de Entrega:</b> {endereco_completo}<br><br>
-              Poderia enviar o <b>display filhotes</b> com a carga por favor?<br><br>
+              Poderia enviar o <b>{tipo_display.lower()}</b> com a carga por favor?<br><br>
         """
         
         if observacao.strip():
@@ -113,7 +113,14 @@ def enviar_email_gmail(destinatarios, cc_list, assunto, nome_cliente, codigo_cli
             
         html += "Obrigado!</p>"
         
-        imagem_path = "display.png" if os.path.exists("display.png") else ("display.jpg" if os.path.exists("display.jpg") else None)
+        # A imagem será inserida SOMENTE se o display for o de Filhotes
+        imagem_path = None
+        if tipo_display == "DISPLAY MINI CLIENTES - FILHOTES":
+            if os.path.exists("display.png"):
+                imagem_path = "display.png"
+            elif os.path.exists("display.jpg"):
+                imagem_path = "display.jpg"
+
         if imagem_path:
             html += '<br><img src="cid:img_display" style="max-width: 250px; border-radius: 8px; border: 1px solid #ccc;"><br>'
             
@@ -150,7 +157,7 @@ def enviar_email_gmail(destinatarios, cc_list, assunto, nome_cliente, codigo_cli
 
 # --- 2. GERADOR DO PDF ---
 class ReciboPDF(FPDF):
-    def criar_via(self, via, cliente, id_recibo, data_hora, filial):
+    def criar_via(self, via, cliente, id_recibo, data_hora, filial, tipo_display):
         y_start = self.get_y()
         
         caminho_logo = None
@@ -229,7 +236,9 @@ class ReciboPDF(FPDF):
         
         self.set_x(10)
         self.set_font('Arial', 'B', 10)
-        self.cell(160, 10, ' DISPLAY MINI CLIENTES - FILHOTES', border=1)
+        
+        # O NOME DO DISPLAY AGORA É INSERIDO DINAMICAMENTE NO PDF
+        self.cell(160, 10, f' {tipo_display}', border=1)
         self.cell(30, 10, '1', border=1, ln=1, align='C')
         
         self.ln(25)
@@ -255,9 +264,6 @@ st.title("📦 Emissão Rápida - Display")
 
 if not os.path.exists("logo.png") and not os.path.exists("logo.jpg"):
     alerta_aviso("⚠️ O logotipo não foi encontrado no sistema. Suba um arquivo com o nome 'logo.png' ou 'logo.jpg' no GitHub para que ele apareça no PDF.")
-
-if not os.path.exists("display.png") and not os.path.exists("display.jpg"):
-    alerta_aviso("⚠️ Imagem do display não encontrada. Suba um arquivo chamado 'display.png' no GitHub para resolver o e-mail.")
 
 try:
     df_clientes = carregar_planilha()
@@ -321,15 +327,22 @@ if cliente is not None and codigo_int is not None:
         """)
     st.divider()
 
-    # --- NOVO SISTEMA DE FILTRO DE FILIAL POR ESTADO (UF) ---
+    st.subheader("2. Detalhes do Envio")
+    
+    # --- NOVO SELECTBOX PARA O TIPO DE DISPLAY ---
+    tipo_display_selecionado = st.radio("Selecione o tipo de Display:", ["DISPLAY MINI CLIENTES - FILHOTES", "DISPLAY SLIM WET"])
+    
+    if tipo_display_selecionado == "DISPLAY MINI CLIENTES - FILHOTES" and not os.path.exists("display.png") and not os.path.exists("display.jpg"):
+        alerta_aviso("⚠️ Imagem do display não encontrada. Suba um arquivo chamado 'display.png' no GitHub para resolver o e-mail.")
+
     if uf_cliente == 'MG':
         opcoes_filial = ["Juiz de Fora", "Poços de Caldas"]
     elif uf_cliente == 'SP':
         opcoes_filial = ["São João da Boa Vista", "São José do Rio Preto"]
     else:
-        opcoes_filial = list(EMAILS_FILIAIS.keys()) # Mostra todas caso seja de outro estado
+        opcoes_filial = list(EMAILS_FILIAIS.keys())
 
-    filial_selecionada = st.selectbox("2. Selecione a Filial de Faturamento:", opcoes_filial)
+    filial_selecionada = st.selectbox("Selecione a Filial de Faturamento:", opcoes_filial)
     
     observacao = st.text_input("📝 Observações para a logística (Opcional):", placeholder="Ex: Entregar apenas no período da tarde")
     modo_teste = st.checkbox("🧪 MODO TESTE (Apenas testa o sistema, envia só para mim com aviso de ignorar)", value=False)
@@ -346,25 +359,28 @@ if cliente is not None and codigo_int is not None:
                 agora = datetime.now()
                 data_hora = agora.strftime("%d/%m/%Y %H:%M")
                 id_recibo = agora.strftime("%y%m%d%H%M%S") 
-                pdf.criar_via('VIA CLIENTE', cliente, id_recibo, data_hora, filial_selecionada)
+                pdf.criar_via('VIA CLIENTE', cliente, id_recibo, data_hora, filial_selecionada, tipo_display_selecionado)
                 
                 pdf.add_page()
-                pdf.criar_via('VIA MINASSAL', cliente, id_recibo, data_hora, filial_selecionada)
+                pdf.criar_via('VIA MINASSAL', cliente, id_recibo, data_hora, filial_selecionada, tipo_display_selecionado)
                 
                 nome_arquivo = f"Recibo_{codigo_int}.pdf"
                 pdf.output(nome_arquivo)
                 
-                assunto = f'Envio de display Royal Canin Mini filhotes para o cliente "{nome_formatado_cliente} - {endereco_completo}"'
+                assunto = f'Envio de {tipo_display_selecionado.lower()} para o cliente "{nome_formatado_cliente} - {endereco_completo}"'
                 
                 if modo_teste:
                     emails_para = MEUS_EMAILS.copy()
                     cc_email = [] 
                 else:
                     emails_para = EMAILS_FILIAIS[filial_selecionada].copy()
-                    email_cliente = str(cliente.get('E-MAIL', ''))
-                    if email_cliente != 'nan' and email_cliente.strip() != '':
-                        emails_para.append(email_cliente.strip())
+                    
+                    # CÓPIA (CC) PADRÃO PARA VOCÊ
                     cc_email = MEUS_EMAILS.copy()
+                    
+                    # NOVA REGRA: FINANCEIRO EM CÓPIA QUANDO FOR POÇOS DE CALDAS
+                    if filial_selecionada == "Poços de Caldas":
+                        cc_email.append("financeiro@minassal.com.br")
                 
                 sucesso = enviar_email_gmail(
                     destinatarios=emails_para, 
@@ -374,6 +390,7 @@ if cliente is not None and codigo_int is not None:
                     codigo_cliente=codigo_int,
                     endereco_completo=endereco_completo,
                     caminho_pdf=nome_arquivo, 
+                    tipo_display=tipo_display_selecionado,
                     observacao=observacao, 
                     is_test=modo_teste
                 )
@@ -382,4 +399,4 @@ if cliente is not None and codigo_int is not None:
                     if modo_teste:
                         alerta_sucesso("✅ TESTE BEM-SUCEDIDO: Recibo gerado em 2 páginas e e-mail enviado APENAS para os seus e-mails.")
                     else:
-                        alerta_sucesso(f"✅ Prontinho! Recibo e e-mail enviados para a filial ({filial_selecionada}) e para {nome_formatado_cliente}.")
+                        alerta_sucesso(f"✅ Prontinho! Recibo e e-mail enviados para a filial ({filial_selecionada}).")
