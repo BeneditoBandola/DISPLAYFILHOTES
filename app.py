@@ -1,484 +1,579 @@
 import streamlit as st
 import pandas as pd
-from fpdf import FPDF
-from datetime import datetime
+import datetime
+from datetime import timezone, timedelta
 import os
+import json
+import base64
+import requests
 import smtplib
 from email.mime.multipart import MIMEMultipart
-from email.mime.base import MIMEBase
 from email.mime.text import MIMEText
-from email.mime.image import MIMEImage
+from email.mime.base import MIMEBase
 from email import encoders
-import json
+from reportlab.lib.pagesizes import letter
+from reportlab.platypus import SimpleDocTemplate, Paragraph, Spacer, Table, TableStyle
+from reportlab.lib.styles import getSampleStyleSheet, ParagraphStyle
+from reportlab.lib import colors
 
-st.set_page_config(page_title="Emissão Rápida", layout="centered", initial_sidebar_state="expanded")
+st.set_page_config(page_title="Monitor de Preços - Royal Canin (JF)", layout="wide")
 
-# --- BANCO DE DADOS LOCAL (JSON) ---
-ARQUIVO_DADOS = "banco_dados.json"
-FILIAIS_LISTA = ["São João da Boa Vista", "São José do Rio Preto", "Poços de Caldas", "Juiz de Fora"]
+st.title("🐾 Auditoria Dinâmica de Preços - Royal Canin (Juiz de Fora)")
+st.markdown("Busque por parte do nome, EAN ou código. Os dados são salvos no GitHub e os e-mails são enviados via Gmail.")
 
-def inicializar_banco():
-    if not os.path.exists(ARQUIVO_DADOS):
-        dados_iniciais = {
-            "estoque": {
-                "São João da Boa Vista": 43,
-                "São José do Rio Preto": 9,
-                "Poços de Caldas": 16,
-                "Juiz de Fora": 9
-            },
-            "historico": []
-        }
-        with open(ARQUIVO_DADOS, "w", encoding="utf-8") as f:
-            json.dump(dados_iniciais, f, ensure_ascii=False, indent=4)
+ARQUIVO_JSON = "auditorias_persistidas.json"
+CUSTOM_PROD_JSON = "produtos_customizados.json" 
 
-def carregar_dados():
-    inicializar_banco()
-    with open(ARQUIVO_DADOS, "r", encoding="utf-8") as f:
-        return json.load(f)
-
-def salvar_dados(dados):
-    with open(ARQUIVO_DADOS, "w", encoding="utf-8") as f:
-        json.dump(dados, f, ensure_ascii=False, indent=4)
-
-# --- ESTILIZAÇÃO DO TEMA (COM CORES FORTES NA ABA LATERAL) ---
-st.markdown("""
-    <style>
-    .stApp { background-color: #FFFFFF !important; }
-    .stApp h1, .stApp h2, .stApp h3, .stApp p, .stApp label { color: #000000 !important; }
-    
-    [data-testid="stSidebar"] { background-color: #1E1E1E !important; }
-    [data-testid="stSidebar"] h1, [data-testid="stSidebar"] h2, 
-    [data-testid="stSidebar"] h3, [data-testid="stSidebar"] p, 
-    [data-testid="stSidebar"] span, [data-testid="stSidebar"] label,
-    [data-testid="stSidebar"] div { color: #FFFFFF !important; }
-    
-    [data-testid="stSidebar"] strong { color: #FFEB3B !important; }
-    
-    div[data-baseweb="select"] > div, input, textarea {
-        background-color: #FFFFFF !important; color: #000000 !important; border: 1px solid #CCCCCC !important;
-    }
-    ul[data-baseweb="menu"] { background-color: #FFFFFF !important; }
-    li[data-baseweb="menu-item"], li[data-baseweb="menu-item"] * { color: #000000 !important; }
-    
-    div.stButton > button { background-color: #D32F2F !important; border: none !important; font-weight: bold; }
-    div.stButton > button * { color: #FFFFFF !important; }
-    div.stButton > button:hover { background-color: #B71C1C !important; }
-    
-    div[data-testid="stCheckbox"] span { color: #000000 !important; font-weight: bold; }
-    div[role="radiogroup"] label { color: #000000 !important; }
-    </style>
-""", unsafe_allow_html=True)
-
-# --- FUNÇÕES DE ALERTA ---
-def alerta_sucesso(texto):
-    st.markdown(f'<div style="background-color: #E8F5E9; padding: 12px; border-radius: 5px; border-left: 5px solid #4CAF50; color: #1B5E20; font-weight: bold; margin-bottom: 15px;">{texto}</div>', unsafe_allow_html=True)
-
-def alerta_aviso(texto):
-    st.markdown(f'<div style="background-color: #FFF3E0; padding: 12px; border-radius: 5px; border-left: 5px solid #FF9800; color: #E65100; font-weight: bold; margin-bottom: 15px;">{texto}</div>', unsafe_allow_html=True)
-
-def alerta_erro(texto):
-    st.markdown(f'<div style="background-color: #FFEBEE; padding: 12px; border-radius: 5px; border-left: 5px solid #F44336; color: #B71C1C; font-weight: bold; margin-bottom: 15px;">{texto}</div>', unsafe_allow_html=True)
-
-# --- 1. E-MAILS ---
-EMAILS_FILIAIS = {
-    "São João da Boa Vista": ["faturamentosjbv@minassal.com.br", "patricia.anunciacao@minassal.com.br"],
-    "São José do Rio Preto": ["faturamentosjrp@minassal.com.br"],
-    "Poços de Caldas": ["faturamentopc2@minassal.com.br"],
-    "Juiz de Fora": ["faturamentojf@minassal.com.br"]
-}
-
-MEUS_EMAILS = [
-    "beneditobandola@gmail.com",
-    "benedito.bandola@minassal.com.br"
-]
+def hora_brasil():
+    tz_br = timezone(timedelta(hours=-3))
+    return datetime.datetime.now(tz_br).strftime("%d/%m/%Y %H:%M:%S")
 
 @st.cache_data
-def carregar_planilha():
-    df = pd.read_csv("clientes base atualizado 14112026.csv", sep=None, engine='python', encoding='utf-8-sig')
-    df.columns = df.columns.str.strip() 
+def load_clients():
+    if os.path.exists('clientes base atualizado 14112026.xlsx'):
+        df = pd.read_excel('clientes base atualizado 14112026.xlsx', sheet_name='Pessoas')
+    elif os.path.exists('clientes base atualizado 14112026.csv'):
+        df = pd.read_csv('clientes base atualizado 14112026.csv')
+    else:
+        return pd.DataFrame()
     return df
 
-def enviar_aviso_estoque(filial, estoque_atual):
-    try:
-        remetente = st.secrets["EMAIL_REMETENTE"]
-        senha = st.secrets["SENHA_REMETENTE"]
-        
-        msg = MIMEMultipart('alternative')
-        msg['From'] = remetente
-        msg['To'] = ", ".join(MEUS_EMAILS)
-        msg['Subject'] = f"📦 ESTOQUE {filial.upper()}: Restam {estoque_atual} Displays"
-        
-        html = f"""
-        <html>
-            <body style="font-family: Arial, sans-serif; color: #333;">
-                <h2 style="color: #D32F2F;">Controle de Estoque - Displays Minassal</h2>
-                <p>Um novo display foi abatido do estoque de faturamento da filial: <b>{filial}</b>.</p>
-                <p>O saldo atualizado para esta filial é de:</p>
-                <h1 style="font-size: 40px; color: #1B5E20;">{estoque_atual} unidades</h1>
-                <hr>
-                <p style="font-size: 12px; color: #666;">Mensagem automática do sistema de emissão rápida.</p>
-            </body>
-        </html>
-        """
-        msg.attach(MIMEText(html, 'html'))
-        
-        server = smtplib.SMTP('smtp.gmail.com', 587)
-        server.starttls()
-        server.login(remetente, senha)
-        server.sendmail(remetente, MEUS_EMAILS, msg.as_string())
-        server.quit()
-    except Exception as e:
-        print(f"Erro ao enviar aviso de estoque: {e}")
+df_clientes = load_clients()
 
-def enviar_email_gmail(destinatarios, cc_list, assunto, nome_cliente, codigo_cliente, endereco_completo, caminho_pdf, tipo_display, observacao="", is_test=False):
+if not df_clientes.empty and 'CIDADE' in df_clientes.columns:
+    df_jf = df_clientes[df_clientes['CIDADE'].astype(str).str.contains('JUIZ DE FORA', case=False, na=False)].copy()
+else:
+    df_jf = df_clientes.copy()
+
+codigos_10 = [21209, 21874, 21878, 21140, 24310, 21873, 21921, 21472, 24077, 21888]
+
+# --- MODIFICAÇÃO: Extrair Códigos das Colunas Iniciais ---
+@st.cache_data
+def load_produtos():
+    if os.path.exists('preçosrecoroyal.xlsx'):
+        try:
+            xls = pd.ExcelFile('preçosrecoroyal.xlsx')
+            df_raw = pd.read_excel('preçosrecoroyal.xlsx', sheet_name=xls.sheet_names[0], header=None)
+            
+            produtos = []
+            for idx, row in df_raw.iterrows():
+                if idx == 0 and any(str(v).upper() in ['DESCRIÇÃO', 'PRODUTO', 'NOME', 'EAN', 'PREÇO'] for v in row.values):
+                    continue
+                
+                # Extraindo os Códigos (Colunas A, B e C)
+                val_a = str(row.iloc[0]).strip() if len(row) > 0 and pd.notna(row.iloc[0]) else ""
+                val_b = str(row.iloc[1]).strip() if len(row) > 1 and pd.notna(row.iloc[1]) else ""
+                val_c = str(row.iloc[2]).strip() if len(row) > 2 and pd.notna(row.iloc[2]) else ""
+                
+                val_d = str(row.iloc[3]).strip() if len(row) > 3 and pd.notna(row.iloc[3]) else ""
+                val_e = str(row.iloc[4]).strip() if len(row) > 4 and pd.notna(row.iloc[4]) else ""
+                val_f = str(row.iloc[5]).strip() if len(row) > 5 and pd.notna(row.iloc[5]) else ""
+                val_i = row.iloc[8] if len(row) > 8 and pd.notna(row.iloc[8]) else 0.0
+                
+                try:
+                    if isinstance(val_i, (int, float)):
+                        preco = float(val_i)
+                    else:
+                        preco = float(str(val_i).replace('R$', '').replace('.', '').replace(',', '.').strip())
+                except:
+                    preco = 0.0
+                
+                if val_d or val_e or val_f or val_a or val_b:
+                    nome_principal = val_d if val_d and val_d.lower() != 'nan' else val_e
+                    ean = val_f.replace('.0', '') if val_f and val_f.lower() != 'nan' else f"ITEM_{idx}"
+                    
+                    produtos.append({
+                        "COD_A": val_a.replace('.0', ''),
+                        "COD_B": val_b.replace('.0', ''),
+                        "COD_C": val_c.replace('.0', ''),
+                        "PRODUTO": nome_principal,
+                        "EAN": ean,
+                        "PREÇO": preco,
+                        "ROW_INDEX": str(idx)
+                    })
+            if produtos:
+                return pd.DataFrame(produtos)
+        except Exception as e:
+            pass
+            
+    data = [
+        {"COD_A": "100", "COD_B": "", "COD_C": "", "PRODUTO": "Royal Canin Exemplo", "EAN": "7896029011111", "PREÇO": 89.90, "ROW_INDEX": "1"},
+    ]
+    return pd.DataFrame(data)
+
+df_produtos = load_produtos()
+
+def parse_preco_br(texto):
+    if not texto:
+        return 0.0
     try:
-        remetente = st.secrets["EMAIL_REMETENTE"]
-        senha = st.secrets["SENHA_REMETENTE"]
+        limpo = str(texto).strip().replace('R$', '').replace(' ', '').replace('.', '').replace(',', '.')
+        return float(limpo)
+    except:
+        return 0.0
+
+def fmt_brl(val):
+    return f"R$ {val:,.2f}".replace(',', 'X').replace('.', ',').replace('X', '.')
+
+def carregar_dados_json(nome_arquivo):
+    if "GITHUB_TOKEN" in st.secrets and "GITHUB_REPO" in st.secrets:
+        try:
+            token = st.secrets["GITHUB_TOKEN"]
+            repo = st.secrets["GITHUB_REPO"]
+            url = f"https://api.github.com/repos/{repo}/contents/{nome_arquivo}"
+            headers = {"Authorization": f"Bearer {token}", "Accept": "application/vnd.github+json"}
+            resp = requests.get(url, headers=headers)
+            if resp.status_code == 200:
+                file_info = resp.json()
+                file_content = base64.b64decode(file_info['content']).decode('utf-8')
+                data = json.loads(file_content)
+                with open(nome_arquivo, 'w', encoding='utf-8') as f:
+                    json.dump(data, f, ensure_ascii=False, indent=4)
+                return data
+        except Exception:
+            pass
+
+    if os.path.exists(nome_arquivo):
+        try:
+            with open(nome_arquivo, 'r', encoding='utf-8') as f:
+                return json.load(f)
+        except Exception:
+            return []
+    return []
+
+def salvar_dados_json(dados, nome_arquivo):
+    with open(nome_arquivo, 'w', encoding='utf-8') as f:
+        json.dump(dados, f, ensure_ascii=False, indent=4)
         
-        msg = MIMEMultipart('related')
+    if "GITHUB_TOKEN" in st.secrets and "GITHUB_REPO" in st.secrets:
+        try:
+            token = st.secrets["GITHUB_TOKEN"]
+            repo = st.secrets["GITHUB_REPO"]
+            url = f"https://api.github.com/repos/{repo}/contents/{nome_arquivo}"
+            headers = {"Authorization": f"Bearer {token}", "Accept": "application/vnd.github+json"}
+            
+            resp_get = requests.get(url, headers=headers)
+            sha = resp_get.json().get('sha') if resp_get.status_code == 200 else None
+            
+            content_json_str = json.dumps(dados, ensure_ascii=False, indent=4)
+            content_encoded = base64.b64encode(content_json_str.encode('utf-8')).decode('utf-8')
+            
+            payload = {
+                "message": f"Atualização de {nome_arquivo} via app em {hora_brasil()}",
+                "content": content_encoded
+            }
+            if sha:
+                payload["sha"] = sha
+                
+            requests.put(url, headers=headers, json=payload)
+        except Exception as e:
+            st.warning(f"Aviso: Não foi possível sincronizar o {nome_arquivo} com o GitHub ({e}), mas está salvo localmente.")
+
+if 'historico_auditoria' not in st.session_state:
+    st.session_state['historico_auditoria'] = carregar_dados_json(ARQUIVO_JSON)
+
+if 'produtos_customizados' not in st.session_state:
+    st.session_state['produtos_customizados'] = carregar_dados_json(CUSTOM_PROD_JSON)
+
+if st.session_state['produtos_customizados']:
+    df_customizados = pd.DataFrame(st.session_state['produtos_customizados'])
+    df_produtos = pd.concat([df_produtos, df_customizados], ignore_index=True)
+
+def enviar_email_com_anexo(destinatarios_str, assunto, corpo, caminho_pdf):
+    remetente = "beneditobandola@gmail.com"
+    if "GMAIL_APP_PASSWORD" not in st.secrets:
+        return False, "⚠️ GMAIL_APP_PASSWORD não configurado nos Secrets do Streamlit."
+    
+    senha = st.secrets["GMAIL_APP_PASSWORD"]
+    
+    try:
+        msg = MIMEMultipart()
         msg['From'] = remetente
-        msg['To'] = ", ".join(destinatarios)
-        if cc_list:
-            msg['Cc'] = ", ".join(cc_list)
-            
-        if is_test:
-            assunto = "[TESTE DO SISTEMA - IGNORAR] " + assunto
-            
+        msg['To'] = destinatarios_str
         msg['Subject'] = assunto
         
-        msg_alt = MIMEMultipart('alternative')
-        msg.attach(msg_alt)
+        msg.attach(MIMEText(corpo, 'plain', 'utf-8'))
         
-        hora_atual = datetime.now().hour
-        saudacao = "Bom dia" if hora_atual < 12 else ("Boa tarde" if hora_atual < 18 else "Boa noite")
-        
-        html = """<html><body style="font-family: Arial, sans-serif; color: #333; line-height: 1.5;">"""
-        if is_test:
-            html += """<div style="background-color: #ffebee; border: 2px solid #b71c1c; padding: 15px; border-radius: 8px; text-align: center; margin-bottom: 20px;"><h2 style="color: #b71c1c; margin: 0;">⚠️ TESTE DE SISTEMA ⚠️</h2><p style="color: #b71c1c; font-weight: bold; margin: 10px 0 0 0;">POR FAVOR, NÃO ENVIE NENHUM MATERIAL. ESTE É APENAS UM TESTE.</p></div>"""
-            
-        html += f"""
-            <p>{saudacao},<br><br>
-            Por favor, quando possível, vai ter um pedido para este cliente:<br>
-            <b>{codigo_cliente} - {nome_cliente}</b><br>
-            <b>Endereço de Entrega:</b> {endereco_completo}<br><br>
-            Poderia enviar o <b>{tipo_display}</b> com a carga por favor?<br><br>
-        """
-        if observacao.strip():
-            html += f"<p style='color: #D32F2F; font-weight: bold; border-left: 4px solid #D32F2F; padding-left: 10px;'>⚠️ Observação: {observacao}</p><br>"
-            
-        html += "Obrigado!</p>"
-        
-        imagem_path = "display.png" if os.path.exists("display.png") else ("display.jpg" if os.path.exists("display.jpg") else None)
-        if imagem_path:
-            html += '<br><img src="cid:img_display" style="max-width: 250px; border-radius: 8px; border: 1px solid #ccc;"><br>'
-            
-        html += "</body></html>"
-        msg_alt.attach(MIMEText(html, 'html'))
-        
-        if imagem_path:
-            with open(imagem_path, 'rb') as img_file:
-                img_mime = MIMEImage(img_file.read())
-                img_mime.add_header('Content-ID', '<img_display>')
-                img_mime.add_header('Content-Disposition', 'inline')
-                msg.attach(img_mime)
-        
-        with open(caminho_pdf, "rb") as f:
-            part = MIMEBase("application", "octet-stream")
-            part.set_payload(f.read())
-        encoders.encode_base64(part)
-        part.add_header('Content-Disposition', f'attachment; filename="{os.path.basename(caminho_pdf)}"')
-        msg.attach(part)
-        
-        todos_destinatarios = destinatarios.copy()
-        if cc_list:
-            todos_destinatarios.extend(cc_list)
+        if os.path.exists(caminho_pdf):
+            with open(caminho_pdf, "rb") as f:
+                part = MIMEBase('application', 'octet-stream')
+                part.set_payload(f.read())
+            encoders.encode_base64(part)
+            part.add_header('Content-Disposition', f'attachment; filename="{os.path.basename(caminho_pdf)}"')
+            msg.attach(part)
             
         server = smtplib.SMTP('smtp.gmail.com', 587)
         server.starttls()
         server.login(remetente, senha)
-        server.sendmail(remetente, todos_destinatarios, msg.as_string())
+        destinatarios_lista = [d.strip() for d in destinatarios_str.split(',') if d.strip()]
+        server.sendmail(remetente, destinatarios_lista, msg.as_string())
         server.quit()
-        return True
+        return True, "E-mail enviado com sucesso!"
     except Exception as e:
-        alerta_erro(f"❌ Erro ao enviar: {e}")
-        return False
+        return False, f"Erro ao enviar e-mail: {str(e)}"
 
-# --- 2. GERADOR DO PDF ---
-class ReciboPDF(FPDF):
-    def criar_via(self, via, cliente, id_recibo, data_hora, filial, tipo_display):
-        y_start = self.get_y()
-        caminho_logo = "logo.png" if os.path.exists("logo.png") else ("logo.jpg" if os.path.exists("logo.jpg") else None)
-        if caminho_logo: self.image(caminho_logo, x=10, y=y_start, w=35)
-            
-        self.set_xy(50, y_start)
-        self.set_font('Arial', 'B', 16)
-        self.cell(0, 7, 'MINASSAL - DISTRIBUIDORA', ln=1)
-        self.set_x(50)
-        self.set_font('Arial', 'B', 10)
-        self.set_text_color(100, 100, 100)
-        self.cell(0, 5, 'DESDE 1986', ln=1)
-        self.set_x(50)
-        self.set_font('Arial', '', 11)
-        self.set_text_color(0, 0, 0)
-        self.cell(0, 6, f'Recibo de Material | ID: {id_recibo}', ln=1)
-        
-        y_atual = self.get_y()
-        y_apos_logo = y_start + 25 
-        if y_atual < y_apos_logo: self.set_y(y_apos_logo)
-        else: self.ln(2)
-        
-        self.set_font('Arial', 'B', 12)
-        self.set_fill_color(220, 220, 220)
-        self.cell(0, 8, via, ln=1, align='C', fill=True)
-        self.ln(4)
-        
-        nome = str(cliente['NOME']).strip().encode('latin-1', 'replace').decode('latin-1')
-        endereco = str(cliente['ENDEREÇO']).strip().encode('latin-1', 'replace').decode('latin-1')
-        bairro = str(cliente['BAIRRO']).strip().encode('latin-1', 'replace').decode('latin-1')
-        cidade = str(cliente['CIDADE']).strip().encode('latin-1', 'replace').decode('latin-1')
-        uf = str(cliente['UF']).strip()
-        codigo = str(cliente['CÓDIGO']).strip()
-        filial_formatada = filial.encode('latin-1', 'replace').decode('latin-1')
-        end_completo = f'{endereco} - Bairro: {bairro} - {cidade}/{uf}'
-        
-        self.set_x(10)
-        self.set_font('Arial', 'B', 10)
-        self.cell(20, 6, 'CLIENTE:', ln=0)
-        self.set_font('Arial', '', 10)
-        self.cell(0, 6, f'{codigo} - {nome}', ln=1)
-        
-        self.set_x(10)
-        self.set_font('Arial', 'B', 10)
-        self.cell(24, 6, 'ENDERECO:', ln=0)
-        self.set_font('Arial', '', 10)
-        self.multi_cell(0, 6, end_completo)
-        
-        self.set_x(10)
-        self.set_font('Arial', 'B', 10)
-        self.cell(12, 6, 'DATA:', ln=0)
-        self.set_font('Arial', '', 10)
-        self.cell(40, 6, f'{data_hora}', ln=0)
-        
-        self.set_font('Arial', 'B', 10)
-        self.cell(16, 6, 'FILIAL:', ln=0)
-        self.set_font('Arial', '', 10)
-        self.cell(0, 6, f'{filial_formatada}', ln=1)
-        self.ln(6)
-        
-        self.set_x(10)
-        self.set_font('Arial', 'B', 10)
-        self.set_fill_color(200, 200, 200)
-        self.cell(160, 8, ' MATERIAL', border=1, fill=True)
-        self.cell(30, 8, 'QTD', border=1, ln=1, align='C', fill=True)
-        
-        self.set_x(10)
-        self.set_font('Arial', 'B', 10)
-        self.cell(160, 10, f' {tipo_display.upper()}', border=1)
-        self.cell(30, 10, '1', border=1, ln=1, align='C')
-        
-        self.ln(25)
-        self.set_y(self.get_y())
-        self.set_x(10)
-        self.set_font('Arial', '', 10)
-        self.cell(85, 5, '______________________________________', align='C', ln=0)
-        self.cell(20, 5, '', ln=0)
-        self.cell(85, 5, '______________________________________', align='C', ln=1)
-        self.set_x(10)
-        self.set_font('Arial', 'B', 9)
-        self.cell(85, 5, 'LOGISTICA MINASSAL', align='C', ln=0)
-        self.cell(20, 5, '', ln=0)
-        self.cell(85, 5, 'ASSINATURA CLIENTE', align='C', ln=1)
-
-# --- MENU LATERAL (ADMINISTRAÇÃO) ---
-with st.sidebar:
-    st.header("⚙️ Gestão de Envios")
-    dados = carregar_dados()
+def gerar_pdf_loja(nome_loja, cod_loja, cidade_loja, itens):
+    pdf_filename = f"auditoria_loja_{cod_loja}.pdf"
+    doc = SimpleDocTemplate(pdf_filename, pagesize=letter, rightMargin=36, leftMargin=36, topMargin=36, bottomMargin=36)
+    story = []
+    styles = getSampleStyleSheet()
     
-    st.subheader("📦 Estoque por Filial")
-    for fil in FILIAIS_LISTA:
-        saldo = dados["estoque"].get(fil, 0)
-        # Se for negativo, mostra em vermelho claro para chamar a atenção
-        cor_saldo = "#FFEB3B" if saldo >= 0 else "#FF8A80"
-        st.markdown(f"<p style='color: #FFFFFF; font-size: 15px;'><b>{fil}:</b> <span style='color: {cor_saldo}; font-size: 18px;'>{saldo}</span> unidades</p>", unsafe_allow_html=True)
+    PRIMARY_COLOR = colors.HexColor("#1A365D")
+    SECONDARY_COLOR = colors.HexColor("#2B6CB0")
+    TEXT_COLOR = colors.HexColor("#2D3748")
+    BG_LIGHT = colors.HexColor("#F7FAFC")
+    BORDER_COLOR = colors.HexColor("#E2E8F0")
+    
+    title_style = ParagraphStyle('DocTitle', parent=styles['Heading1'], fontSize=18, leading=22, textColor=PRIMARY_COLOR, spaceAfter=6, fontName='Helvetica-Bold')
+    subtitle_style = ParagraphStyle('DocSubtitle', parent=styles['Normal'], fontSize=10, leading=14, textColor=TEXT_COLOR, spaceAfter=15, fontName='Helvetica')
+    section_style = ParagraphStyle('SectionHeading', parent=styles['Heading2'], fontSize=12, leading=16, textColor=SECONDARY_COLOR, spaceBefore=10, spaceAfter=8, fontName='Helvetica-Bold')
+    body_style = ParagraphStyle('BodyTextCustom', parent=styles['Normal'], fontSize=9, leading=12, textColor=TEXT_COLOR, fontName='Helvetica')
+    footer_info_style = ParagraphStyle('FooterInfo', parent=styles['Normal'], fontSize=8.5, leading=12, textColor=colors.HexColor("#4A5568"), fontName='Helvetica-Oblique')
+
+    story.append(Paragraph("RELATÓRIO DE AUDITORIA DE PREÇOS", title_style))
+    story.append(Paragraph(f"<b>Portfólio:</b> Royal Canin &mdash; <b>Loja:</b> {cod_loja} - {nome_loja} | <b>Cidade:</b> {cidade_loja}<br/><b>Data/Hora da Emissão (BR):</b> {hora_brasil()}", subtitle_style))
+    story.append(Spacer(1, 5))
+    story.append(Paragraph("Detalhamento dos Itens Coletados na Gôndola", section_style))
+    
+    table_data = [["Produto", "Qtd", "Preço Rec.", "Preço Loja", "Total Rec.", "Total Loja", "Dif. (R$)", "Var (%)"]]
+    total_rec_geral = 0.0
+    total_loja_geral = 0.0
+    
+    for item in itens:
+        qtd = int(item['Quantidade Loja'])
+        p_rec = float(item['Preco Recomendado'])
+        p_loja = float(item['Preco Praticado'])
+        tot_rec = qtd * p_rec
+        tot_loja = qtd * p_loja
+        total_rec_geral += tot_rec
+        total_loja_geral += tot_loja
         
-    with st.expander("Atualizar Saldo Manualmente"):
-        novos_saldos = {}
-        for fil in FILIAIS_LISTA:
-            saldo_atual = dados["estoque"].get(fil, 0)
-            # REMOVIDO o min_value=0 para permitir números negativos sem travar
-            novos_saldos[fil] = st.number_input(f"Saldo de {fil}:", value=saldo_atual, step=1)
-            
-        if st.button("Salvar Novos Saldos"):
-            dados["estoque"] = novos_saldos
-            salvar_dados(dados)
-            st.success("Saldos atualizados!")
-            st.rerun()
-            
-    st.divider()
-    st.subheader("📜 Histórico")
-    if dados["historico"]:
-        df_historico = pd.DataFrame(dados["historico"])
-        st.dataframe(df_historico, use_container_width=True)
-    else:
-        st.info("Nenhum envio registrado ainda.")
-
-
-# --- 3. INTERFACE PRINCIPAL ---
-st.title("📦 Emissão Rápida - Display")
-
-if not os.path.exists("logo.png") and not os.path.exists("logo.jpg"):
-    alerta_aviso("⚠️ O logotipo não foi encontrado no sistema (logo.png ou logo.jpg).")
-if not os.path.exists("display.png") and not os.path.exists("display.jpg"):
-    alerta_aviso("⚠️ Imagem do display não encontrada (display.png ou display.jpg).")
-
-try:
-    df_clientes = carregar_planilha()
-except FileNotFoundError:
-    alerta_erro("❌ O arquivo de clientes não foi encontrado. Verifique o nome do arquivo CSV.")
-    st.stop()
-
-# --- SISTEMA DE BUSCA ---
-cliente = None
-codigo_int = None
-
-st.subheader("1. Buscar Cliente")
-tipo_busca = st.radio("Como deseja buscar?", ["Por Código", "Por Nome / Fantasia"], horizontal=True)
-
-if tipo_busca == "Por Código":
-    codigo_input = st.text_input("Digite o Código (Apenas números):", placeholder="Ex: 17129")
-    if codigo_input:
-        if not codigo_input.isdigit(): alerta_aviso("⚠️ Digite apenas números no código.")
-        else:
-            codigo_int = int(codigo_input)
-            cliente_linha = df_clientes[df_clientes['CÓDIGO'] == codigo_int]
-            if cliente_linha.empty: alerta_erro("❌ Cliente não encontrado.")
-            else: cliente = cliente_linha.iloc[0]
-
-elif tipo_busca == "Por Nome / Fantasia":
-    nome_input = st.text_input("Digite parte do Nome ou Fantasia:", placeholder="Ex: PET MANIA")
-    if nome_input:
-        mask = df_clientes['NOME'].astype(str).str.contains(nome_input, case=False, na=False) | \
-               df_clientes['NOME FANTASIA'].astype(str).str.contains(nome_input, case=False, na=False)
-        resultados = df_clientes[mask]
+        table_data.append([
+            Paragraph(item['Produto'], body_style),
+            str(qtd),
+            fmt_brl(p_rec),
+            fmt_brl(p_loja),
+            fmt_brl(tot_rec),
+            fmt_brl(tot_loja),
+            fmt_brl(item['Diferenca (R$)']),
+            f"{item['Variação (%)']:+.2f}%".replace('.', ',')
+        ])
         
-        if resultados.empty: alerta_erro("❌ Nenhum cliente encontrado com esse nome.")
-        else:
-            opcoes = ["-- Selecione o cliente na lista --"] + resultados.apply(lambda row: f"{row['CÓDIGO']} - {row['NOME']} ({row['CIDADE']}/{row['UF']})", axis=1).tolist()
-            cliente_selecionado = st.selectbox("Selecione o cliente correto:", opcoes)
-            
-            if cliente_selecionado != "-- Selecione o cliente na lista --":
-                codigo_int = int(cliente_selecionado.split(" - ")[0])
-                cliente = df_clientes[df_clientes['CÓDIGO'] == codigo_int].iloc[0]
+    t = Table(table_data, colWidths=[160, 30, 60, 60, 65, 65, 60, 50])
+    t.setStyle(TableStyle([
+        ('BACKGROUND', (0,0), (-1,0), PRIMARY_COLOR),
+        ('TEXTCOLOR', (0,0), (-1,0), colors.white),
+        ('ALIGN', (0,0), (-1,-1), 'CENTER'),
+        ('ALIGN', (0,0), (0,-1), 'LEFT'),
+        ('FONTNAME', (0,0), (-1,0), 'Helvetica-Bold'),
+        ('FONTSIZE', (0,0), (-1,0), 9),
+        ('BOTTOMPADDING', (0,0), (-1,0), 6),
+        ('TOPPADDING', (0,0), (-1,0), 6),
+        ('BACKGROUND', (0,1), (-1,-1), colors.white),
+        ('ROWBACKGROUNDS', (0,1), (-1,-1), [colors.white, BG_LIGHT]),
+        ('GRID', (0,0), (-1,-1), 0.5, BORDER_COLOR),
+        ('FONTSIZE', (0,1), (-1,-1), 8.5),
+        ('VALIGN', (0,0), (-1,-1), 'MIDDLE'),
+    ]))
+    
+    story.append(t)
+    story.append(Spacer(1, 15))
+    
+    diff_total = total_loja_geral - total_rec_geral
+    diff_pct_total = (diff_total / total_rec_geral * 100) if total_rec_geral > 0 else 0.0
+    
+    story.append(Paragraph("Resumo e Análise Financeira (Informativo)", section_style))
+    resumo_texto = f"""
+    <b>Total Recomendado (Tabela):</b> {fmt_brl(total_rec_geral)}<br/>
+    <b>Total Praticado na Loja:</b> {fmt_brl(total_loja_geral)}<br/>
+    <b>Diferença Financeira Total:</b> {fmt_brl(diff_total)} ({diff_pct_total:+.2f}% em relação ao recomendado)<br/><br/>
+    <i>Nota Informativa:</i> Esta simulação demonstra o impacto financeiro caso todo o volume auditado fosse adquirido considerando os preços praticados na gôndola em comparação com a tabela de preços recomendados pela marca. Relatório gerado automaticamente para suporte à gestão.
+    """
+    story.append(Paragraph(resumo_texto, footer_info_style))
+    doc.build(story)
+    return pdf_filename
 
-# --- PROCESSAMENTO PÓS-BUSCA ---
-if cliente is not None and codigo_int is not None:
-    nome_formatado_cliente = str(cliente["NOME"]).strip()
-    endereco_completo = f"{cliente.get('ENDEREÇO', '-')}, {cliente.get('BAIRRO', '-')} - {cliente.get('CIDADE', '-')} / {cliente.get('UF', '-')}"
-    uf_cliente = str(cliente.get('UF', '')).strip().upper()
-    
-    alerta_sucesso("✅ Cliente Encontrado!")
-    with st.container():
-        st.markdown(f"**Código:** {codigo_int}  \n**Nome:** {nome_formatado_cliente}  \n**Fantasia:** {cliente.get('NOME FANTASIA', '-')}  \n**UF:** {uf_cliente}  \n**Endereço:** {endereco_completo}")
-    st.divider()
+st.sidebar.header("📍 Seleção de Loja (Juiz de Fora)")
+modo_selecao = st.sidebar.radio("Modo de Lista de Lojas:", ["10 Lojas Principais", "Todos os Clientes de Juiz de Fora"])
 
-    if uf_cliente == 'MG': opcoes_filial = ["Juiz de Fora", "Poços de Caldas"]
-    elif uf_cliente == 'SP': opcoes_filial = ["São João da Boa Vista", "São José do Rio Preto"]
-    else: opcoes_filial = list(EMAILS_FILIAIS.keys())
+if modo_selecao == "10 Lojas Principais":
+    df_lojas_disponiveis = df_jf[df_jf['CÓDIGO'].isin(codigos_10)].copy()
+else:
+    df_lojas_disponiveis = df_jf.copy()
 
-    filial_selecionada = st.selectbox("2. Selecione a Filial de Faturamento:", opcoes_filial)
-    
-    # Nova caixa de seleção de Display adicionada aqui:
-    tipo_display = st.selectbox("3. Selecione o tipo de Display:", ["Display Mini Clientes - Filhotes", "Display Slim Wet"])
-    
-    dados_app = carregar_dados()
-    estoque_filial_atual = dados_app["estoque"].get(filial_selecionada, 0)
-    
-    observacao = st.text_input("📝 Observações para a logística (Opcional):")
-    email_adicional = st.text_input("📧 E-mail adicional para receber cópia (Opcional):", placeholder="Ex: supervisor@minassal.com.br")
-    modo_teste = st.checkbox("🧪 MODO TESTE (Testa o sistema, envia só para os meus e-mails e NÃO ABATE do estoque)", value=False)
-    
-    if st.button("4. Gerar e Enviar E-mail 🚀"):
-        if estoque_filial_atual <= 0 and not modo_teste:
-            st.warning(f"⚠️ Atenção: O estoque da filial {filial_selecionada} está em {estoque_filial_atual}. O e-mail será enviado normalmente, mas lembre-se de ajustar o saldo depois.")
-            
-        if "EMAIL_REMETENTE" not in st.secrets or "SENHA_REMETENTE" not in st.secrets:
-            alerta_erro("❌ Credenciais (Secrets) não cadastradas no Streamlit.")
-        else:
-            with st.spinner("Gerando recibo e disparando e-mail..."):
+if not df_lojas_disponiveis.empty:
+    df_lojas_disponiveis['LABEL'] = df_lojas_disponiveis['CÓDIGO'].astype(str) + " - " + df_lojas_disponiveis['NOME'].fillna('') + (
+        " (" + df_lojas_disponiveis['NOME FANTASIA'].fillna('') + ")"
+    ).str.replace(r' \(\)', '', regex=True)
+
+loja_selecionada = None
+if not df_lojas_disponiveis.empty:
+    opcao_escolhida = st.sidebar.selectbox("Selecione a Loja:", df_lojas_disponiveis['LABEL'].tolist())
+    if opcao_escolhida:
+        cod_loja = int(opcao_escolhida.split(" - ")[0])
+        loja_selecionada = df_lojas_disponiveis[df_lojas_disponiveis['CÓDIGO'] == cod_loja].iloc[0]
+
+aba_coleta, aba_historico = st.tabs(["📝 Coleta Dinâmica em Loja", "📊 Histórico, Edição e Exclusão (JSON)"])
+
+with aba_coleta:
+    if loja_selecionada is not None:
+        st.success(f"**Loja Ativa:** {loja_selecionada['CÓDIGO']} - {loja_selecionada['NOME']} | Endereço: {loja_selecionada.get('ENDEREÇO', 'N/D')}")
+        
+        cod_loja_atual = int(loja_selecionada['CÓDIGO'])
+        itens_loja_salvos = [item for item in st.session_state['historico_auditoria'] if int(item.get('Código Loja', 0)) == cod_loja_atual]
+
+        st.markdown("---")
+        st.subheader("🔍 Buscar Produto por Nome, EAN ou Código")
+        
+        termo_busca = st.text_input("Digite sua busca (ex: 'uri', '1kg', '100052', '78960'):")
+        
+        with st.expander("➕ Não encontrou o produto? Cadastre manualmente"):
+            with st.form("form_add_produto_custom"):
+                st.markdown("Os produtos cadastrados aqui ficarão salvos para sempre no sistema e aparecerão nas buscas.")
+                c1, c2, c3 = st.columns(3)
+                with c1:
+                    novo_nome = st.text_input("Nome do Produto *")
+                with c2:
+                    novo_codigo = st.text_input("Código ou EAN da Imagem")
+                with c3:
+                    novo_preco_rec = st.number_input("Preço Recomendado (R$)", min_value=0.0, format="%.2f")
                 
-                # Gerar o PDF
-                pdf = ReciboPDF()
-                pdf.add_page()
-                agora = datetime.now()
-                data_hora = agora.strftime("%d/%m/%Y %H:%M")
-                id_recibo = agora.strftime("%y%m%d%H%M%S") 
-                pdf.criar_via('VIA CLIENTE', cliente, id_recibo, data_hora, filial_selecionada, tipo_display)
-                
-                pdf.add_page()
-                pdf.criar_via('VIA MINASSAL', cliente, id_recibo, data_hora, filial_selecionada, tipo_display)
-                
-                nome_arquivo = f"Recibo_{codigo_int}.pdf"
-                pdf.output(nome_arquivo)
-                
-                # Configurar E-mail
-                assunto = f'Envio de {tipo_display} para o cliente "{nome_formatado_cliente} - {endereco_completo}"'
-                
-                if modo_teste:
-                    emails_para = MEUS_EMAILS.copy()
-                    cc_email = []
-                    if email_adicional.strip(): cc_email.append(email_adicional.strip())
-                else:
-                    emails_para = EMAILS_FILIAIS[filial_selecionada].copy()
-                    email_cliente = str(cliente.get('E-MAIL', ''))
-                    if email_cliente != 'nan' and email_cliente.strip() != '':
-                        emails_para.append(email_cliente.strip())
-                        
-                    cc_email = MEUS_EMAILS.copy()
-                    if email_adicional.strip(): cc_email.append(email_adicional.strip())
-                
-                # Enviar E-mail
-                sucesso = enviar_email_gmail(
-                    destinatarios=emails_para, 
-                    cc_list=cc_email, 
-                    assunto=assunto, 
-                    nome_cliente=nome_formatado_cliente,
-                    codigo_cliente=codigo_int,
-                    endereco_completo=endereco_completo,
-                    caminho_pdf=nome_arquivo, 
-                    tipo_display=tipo_display,
-                    observacao=observacao, 
-                    is_test=modo_teste
-                )
-                
-                if sucesso:
-                    if not modo_teste:
-                        dados_app["estoque"][filial_selecionada] -= 1
-                        dados_app["historico"].append({
-                            "data_hora": data_hora,
-                            "codigo": codigo_int,
-                            "cliente": nome_formatado_cliente,
-                            "filial": filial_selecionada,
-                            "email_adicional": email_adicional.strip() if email_adicional.strip() else "Nenhum"
-                        })
-                        salvar_dados(dados_app)
-                        novo_estoque = dados_app["estoque"][filial_selecionada]
-                        enviar_aviso_estoque(filial_selecionada, novo_estoque)
-                        alerta_sucesso(f"✅ Prontinho! Recibo e e-mail enviados para a filial ({filial_selecionada}) e para {nome_formatado_cliente}.")
+                if st.form_submit_button("Salvar Produto no Sistema"):
+                    if not novo_nome.strip():
+                        st.error("O nome do produto é obrigatório!")
                     else:
-                        alerta_sucesso("✅ TESTE BEM-SUCEDIDO: E-mail enviado APENAS para os seus e-mails (Estoque preservado).")
+                        _cod = novo_codigo.strip() if novo_codigo.strip() else f"CUSTOM_{datetime.datetime.now().strftime('%H%M%S')}"
+                        novo_item_bd = {
+                            "PRODUTO": novo_nome.strip().upper(),
+                            "EAN": _cod,
+                            "COD_A": _cod,
+                            "PREÇO": novo_preco_rec,
+                            "ROW_INDEX": f"C_{_cod}"
+                        }
+                        st.session_state['produtos_customizados'].append(novo_item_bd)
+                        salvar_dados_json(st.session_state['produtos_customizados'], CUSTOM_PROD_JSON)
+                        st.success("Produto cadastrado com sucesso! Já pode buscá-lo acima.")
+                        st.rerun()
+        
+        if termo_busca:
+            termo = termo_busca.strip().lower()
+            
+            # --- MODIFICAÇÃO: A busca agora varre os Códigos A, B e C ---
+            def match_row(row):
+                if termo in str(row.get('PRODUTO', '')).lower(): return True
+                if termo in str(row.get('EAN', '')).lower(): return True
+                if termo in str(row.get('COD_A', '')).lower(): return True
+                if termo in str(row.get('COD_B', '')).lower(): return True
+                if termo in str(row.get('COD_C', '')).lower(): return True
+                return False
 
-                    # Ler o PDF gerado para disponibilizar para download antes de excluí-lo
-                    with open(nome_arquivo, "rb") as pdf_file:
-                        pdf_bytes = pdf_file.read()
+            df_encontrados = df_produtos[df_produtos.apply(match_row, axis=1)]
+            
+            if not df_encontrados.empty:
+                st.info(f"Encontrado(s) {len(df_encontrados)} produto(s):")
+                for idx, prod in df_encontrados.iterrows():
+                    p_ean = str(prod.get('EAN', ''))
+                    p_nome = str(prod.get('PRODUTO', ''))
+                    p_rec = float(prod.get('PREÇO', 0.0))
+                    row_idx = str(prod.get('ROW_INDEX', ''))
+                    p_cod = str(prod.get('COD_A', '')) or p_ean
+                    
+                    p_rec_str = fmt_brl(p_rec)
+                    
+                    with st.container():
+                        c_img, c_info, c_preco, c_qtd, c_btn = st.columns([1, 3, 2, 2, 2])
                         
-                    # Excluir o arquivo físico para não lotar o servidor
-                    if os.path.exists(nome_arquivo):
-                        os.remove(nome_arquivo)
+                        # --- MODIFICAÇÃO: Super Filtro de Imagens ---
+                        with c_img:
+                            img_path = None
+                            candidatos_brutos = [
+                                p_ean, 
+                                str(prod.get('COD_A', '')),
+                                str(prod.get('COD_B', '')),
+                                str(prod.get('COD_C', '')),
+                                row_idx
+                            ]
+                            
+                            cands_limpos = []
+                            for c in candidatos_brutos:
+                                c_limpo = str(c).strip().lower()
+                                if c_limpo.endswith('.0'): c_limpo = c_limpo[:-2] # Tira o .0
+                                if c_limpo:
+                                    cands_limpos.append(c_limpo)
+                                    if c_limpo.isnumeric():
+                                        cands_limpos.append(str(int(c_limpo))) # Garante match mesmo se a imagem ignorar zero à esquerda
+                                        
+                            if os.path.exists("imagens"):
+                                for arq in os.listdir("imagens"):
+                                    nome_base, ext = os.path.splitext(arq)
+                                    if ext.lower() in ['.png', '.jpg', '.jpeg', '.webp']:
+                                        nb_limpo = nome_base.strip().lower()
+                                        nb_int = str(int(nb_limpo)) if nb_limpo.isnumeric() else nb_limpo
+                                        
+                                        if nb_limpo in cands_limpos or nb_int in cands_limpos:
+                                            img_path = os.path.join("imagens", arq)
+                                            break
+                                            
+                            if img_path and os.path.exists(img_path):
+                                st.image(img_path, width=70)
+                            else:
+                                st.markdown("📦 *Sem foto*")
+                                
+                        with c_info:
+                            st.markdown(f"**{p_nome}**<br><small>Ref: {p_cod}</small>", unsafe_allow_html=True)
+                            st.text(f"Preço recomendado: {p_rec_str}")
+                            
+                        with c_preco:
+                            preco_prat_txt = st.text_input(f"Preço Gôndola", value="", placeholder="0,00", key=f"preco_{row_idx}_{idx}")
+                            preco_prat = parse_preco_br(preco_prat_txt)
+                            
+                        with c_qtd:
+                            qtd_loja = st.number_input(f"Qtd Loja", min_value=0, value=1, step=1, key=f"qtd_{row_idx}_{idx}")
+                            
+                        with c_btn:
+                            st.markdown("<br>", unsafe_allow_html=True)
+                            if st.button("➕ Adicionar", key=f"btn_add_{row_idx}_{idx}"):
+                                if preco_prat <= 0:
+                                    st.warning("Informe o preço praticado.")
+                                else:
+                                    ja_adicionado = any(str(item.get('Código Produto')) == str(p_cod) for item in itens_loja_salvos)
+                                    if ja_adicionado:
+                                        st.error(f"⚠️ Este produto ({p_nome}) já está salvo nesta loja!")
+                                    else:
+                                        dif = preco_prat - p_rec
+                                        var = (dif / p_rec) * 100 if p_rec > 0 else 0.0
+                                        
+                                        novo_item = {
+                                            "ID_REGISTRO": f"{cod_loja}_{p_cod}_{datetime.datetime.now().strftime('%H%M%S%f')}",
+                                            "Data/Hora": hora_brasil(),
+                                            "Código Loja": cod_loja,
+                                            "Nome Loja": str(loja_selecionada['NOME']),
+                                            "Cidade": str(loja_selecionada['CIDADE']),
+                                            "Código Produto": p_cod,
+                                            "Produto": p_nome,
+                                            "Preco Recomendado": p_rec,
+                                            "Preco Praticado": preco_prat,
+                                            "Quantidade Loja": int(qtd_loja),
+                                            "Diferenca (R$)": round(dif, 2),
+                                            "Variação (%)": round(var, 2)
+                                        }
+                                        
+                                        st.session_state['historico_auditoria'].append(novo_item)
+                                        salvar_dados_json(st.session_state['historico_auditoria'], ARQUIVO_JSON)
+                                        st.success(f"Adicionado e sincronizado com o GitHub: {p_nome}")
+                                        st.rerun()
+                        st.divider()
+            else:
+                st.info("Nenhum produto encontrado com este termo de busca.")
 
-                    # Botão de download (usa o arquivo lido na memória)
-                    st.download_button(
-                        label="📥 Baixar Cópia do Recibo em PDF",
-                        data=pdf_bytes,
-                        file_name=nome_arquivo,
-                        mime="application/pdf"
-                    )
+        st.markdown("---")
+        st.subheader("🛒 Produtos Já Catalogados Nesta Loja")
+        
+        itens_loja_salvos = [item for item in st.session_state['historico_auditoria'] if int(item.get('Código Loja', 0)) == cod_loja_atual]
+        
+        if itens_loja_salvos:
+            for i, item in enumerate(itens_loja_salvos):
+                prat_str = fmt_brl(item['Preco Praticado'])
+                rec_str = fmt_brl(item['Preco Recomendado'])
+                dif_str = fmt_brl(item['Diferenca (R$)'])
+                var_val = item['Variação (%)']
+                var_str = f"{var_val:+.2f}%".replace('.', ',')
+                
+                with st.container():
+                    st.markdown(f"""
+                    **{item['Produto']}**  
+                    * **Quantidade:** {item['Quantidade Loja']}  
+                    * **Preço Recomendado:** {rec_str}  
+                    * **Preço da Loja:** {prat_str}  
+                    * **Diferença (R$):** {dif_str}  
+                    * **Variação (%):** {var_str}
+                    """)
+                    if st.button("🗑️ Excluir da Loja", key=f"rm_eterno_{cod_loja_atual}_{i}"):
+                        id_alvo = item.get('ID_REGISTRO')
+                        st.session_state['historico_auditoria'] = [x for x in st.session_state['historico_auditoria'] if x.get('ID_REGISTRO') != id_alvo]
+                        salvar_dados_json(st.session_state['historico_auditoria'], ARQUIVO_JSON)
+                        st.success("Item removido e sincronizado!")
+                        st.rerun()
+                    st.divider()
+            
+            if st.button("🚪 Salvar e Sair"):
+                salvar_dados_json(st.session_state['historico_auditoria'], ARQUIVO_JSON)
+                st.success("✅ Progresso salvo!")
+                st.rerun()
+
+            st.markdown("---")
+            st.subheader("📄 Relatório PDF & Envio por E-mail")
+            
+            pdf_path = gerar_pdf_loja(loja_selecionada['NOME'], loja_selecionada['CÓDIGO'], loja_selecionada['CIDADE'], itens_loja_salvos)
+            
+            with open(pdf_path, "rb") as f:
+                pdf_bytes = f.read()
+                
+            st.download_button(
+                label="📥 Baixar Relatório em PDF",
+                data=pdf_bytes,
+                file_name=f"auditoria_{loja_selecionada['CÓDIGO']}.pdf",
+                mime="application/pdf"
+            )
+            
+            st.markdown("#### Enviar por E-mail")
+            opcao_envio = st.radio("Destinatário:", ["Somente para mim", "Time inteiro"], key="opcao_envio_radio")
+            
+            if opcao_envio == "Somente para mim":
+                email_padrao = "benedito.bandola@minassal.com.br, beneditobandola@gmail.com"
+            else:
+                email_padrao = "caio.poli@minassal.com.br, daniel.santini@minassal.com.br, rubens.porfirio@minassal.com.br, benedito.bandola@minassal.com.br, beneditobandola@gmail.com"
+                
+            email_destino = st.text_input("E-mail(s) de destino:", value=email_padrao)
+            
+            if st.button("📧 Enviar Relatório por E-mail"):
+                assunto = f"Relatório de Auditoria de Preços - Loja {loja_selecionada['CÓDIGO']} - {loja_selecionada['NOME']}"
+                corpo = f"Olá,\n\nSegue em anexo o relatório emitido em {hora_brasil()}."
+                sucesso, mensagem = enviar_email_com_anexo(email_destino, assunto, corpo, pdf_path)
+                if sucesso:
+                    st.success(f"✅ Enviado com sucesso para: {email_destino}")
+                else:
+                    st.error(f"❌ Erro: {mensagem}")
+        else:
+            st.info("Nenhum produto cadastrado nesta loja ainda.")
+    else:
+        st.info("👈 Selecione uma loja na lateral.")
+
+with aba_historico:
+    st.header("📂 Histórico Geral")
+    if st.session_state['historico_auditoria']:
+        hist = st.session_state['historico_auditoria']
+        lojas_hist = list(set([f"{item['Código Loja']} - {item['Nome Loja']}" for item in hist]))
+        filtro_l = st.selectbox("Filtrar Histórico:", ["Todas as Lojas"] + lojas_hist)
+        
+        for i, item in enumerate(hist):
+            if filtro_l != "Todas as Lojas" and filtro_l != f"{item['Código Loja']} - {item['Nome Loja']}":
+                continue
+            with st.expander(f"📌 {item['Nome Loja']} — {item['Produto']} | R$ {item['Preco Praticado']}"):
+                with st.form(f"form_edit_{i}"):
+                    c_e1, c_e2, c_e3 = st.columns(3)
+                    with c_e1:
+                        novo_prat = st.number_input("Praticado (R$)", value=float(item['Preco Praticado']), step=0.50)
+                    with c_e2:
+                        nova_qtd = st.number_input("Qtd", value=int(item['Quantidade Loja']), step=1)
+                        
+                    col_b1, col_b2 = st.columns(2)
+                    with col_b1:
+                        if st.form_submit_button("✏️ Atualizar"):
+                            rec = float(item['Preco Recomendado'])
+                            dif = novo_prat - rec
+                            var = (dif / rec) * 100 if rec > 0 else 0.0
+                            hist[i].update({'Preco Praticado': float(novo_prat), 'Quantidade Loja': int(nova_qtd), 'Diferenca (R$)': round(dif, 2), 'Variação (%)': round(var, 2)})
+                            st.session_state['historico_auditoria'] = hist
+                            salvar_dados_json(hist, ARQUIVO_JSON)
+                            st.success("Atualizado!")
+                            st.rerun()
+                    with col_b2:
+                        if st.form_submit_button("🗑️ Excluir"):
+                            hist.pop(i)
+                            st.session_state['historico_auditoria'] = hist
+                            salvar_dados_json(hist, ARQUIVO_JSON)
+                            st.success("Excluído!")
+                            st.rerun()
+    else:
+        st.info("Nenhum registro.")
